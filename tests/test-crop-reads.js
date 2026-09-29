@@ -107,3 +107,36 @@ test('full (non-quick) Crop check still reads and validates Zoom and Edge Feathe
   const r=f.call('inspect',{track:2,selectedOnly:false});assert(r.ok);assert.match(r.value.clips[0].error,pattern);
  }
 });
+const COUNTERS=['cropCacheNoShape','cropCacheComponentCountMismatch','cropCacheComponentMissing','cropCacheMatchNameMismatch','cropCachePropertyCountMismatch','cropCachePropertyMissing','cropCachePropertyNameMismatch','cropCacheOtherFailure','cropCacheLearned','cropCacheNotLearned','cropCacheHits','cropFullScans'];
+test('every cache counter is reported in beginRun stats; a clean run has one no-shape miss (first cue), one learn and the rest hits',()=>{
+ const {r}=runWith(()=>{},20);const s=r.value.stats;
+ COUNTERS.forEach(k=>assert.equal(typeof s[k],'number',k));
+ assert.deepEqual(COUNTERS.filter(k=>s[k]).map(k=>[k,s[k]]),[['cropCacheNoShape',1],['cropCacheLearned',1],['cropCacheHits',19],['cropFullScans',1]]);
+ assert.equal(s.cropSample,'');assert.match(s.cropLearnSample,/components number 1, index 0, matchName AE.ADBE Crop, properties number 4/);
+});
+test('miss reasons are counted separately',()=>{
+ const other=()=>({displayName:'X',matchName:'ADBE X',properties:Object.assign([],{numItems:0})});
+ let x=runWith(f=>{const c=crop(f,1);c.push(other());c.numItems=2;}).r.value.stats;
+ assert.equal(x.cropCacheComponentCountMismatch,2);assert.match(x.cropSample,/^cropCacheComponentCountMismatch: expected number 1, actual number 2/);
+ x=runWith(f=>{for(let i=0;i<4;i++){const c=crop(f,i);c.push(other());c.numItems=2;}const c=crop(f,1),first=c[0];c[0]=c[1];c[1]=first;}).r.value.stats;
+ assert.equal(x.cropCacheMatchNameMismatch,2); // cue1 (swapped) and cue2 (back to the original order)
+ x=runWith(f=>{const p=crop(f,1)[0].properties;p.push({displayName:'Zoom',isTimeVarying:()=>false,getValue:()=>false});p.numItems=5;}).r.value.stats;
+ assert.equal(x.cropCachePropertyCountMismatch,2);
+ x=runWith(f=>{const p=crop(f,1)[0].properties,l=p[0];p[0]=p[2];p[2]=l;}).r.value.stats;
+ assert.equal(x.cropCachePropertyNameMismatch,2);assert.match(x.cropSample,/expected string Left, actual string Right/);
+});
+test('exceptions inside the cache check are counted and fall back to the full scan',()=>{
+ const {f,r}=runWith(f=>{Object.defineProperty(crop(f,1)[0],'properties',{get(){throw new Error('boom');}});},3);
+ // the full scan for that clip reads properties too, so the error still surfaces from the original path
+ assert.equal(r.value.stats.cropCacheOtherFailure,1);assert.match(r.value.error,/boom/);
+});
+test('Premiere-specific value shapes are visible in the counters (Number object numItems, non-Crop matchName)',()=>{
+ // numItems returned as an object: strict comparison against the learned value can never match
+ let s=runWith(f=>{for(let i=0;i<4;i++){const c=crop(f,i);c.numItems=new Number(1);}}).r.value.stats;
+ assert.equal(s.cropCacheHits,0);assert.equal(s.cropFullScans,4);assert.equal(s.cropCacheComponentCountMismatch,3);
+ assert.match(s.cropSample,/expected object 1, actual object 1/);
+ // Crop found only through displayName: the shape is never learned
+ s=runWith(f=>{for(let i=0;i<4;i++)crop(f,i)[0].matchName='ADBE Something';for(let i=0;i<4;i++)crop(f,i)[0].displayName='Crop';}).r.value.stats;
+ assert.equal(s.cropCacheLearned,0);assert.equal(s.cropCacheNotLearned,4);assert.equal(s.cropCacheNoShape,4);assert.equal(s.cropCacheHits,0);
+ assert.match(s.cropLearnSample,/^not learned: matchName ADBE Something/);
+});

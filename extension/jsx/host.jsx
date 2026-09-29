@@ -96,22 +96,38 @@ var KG23 = (function () {
     var CROP_NAMES=['Left','Top','Right','Bottom'];
     // Write path only. Plain data learned from a fully scanned clip (cropShape) is re-checked against
     // this clip; any mismatch returns null and the caller runs the full scan below.
+    // Aggregated diagnostics only (per host call); at most one value sample per call.
+    var CROP_CACHE_COUNTERS=['cropCacheNoShape','cropCacheComponentCountMismatch','cropCacheComponentMissing','cropCacheMatchNameMismatch','cropCachePropertyCountMismatch','cropCachePropertyMissing','cropCachePropertyNameMismatch','cropCacheOtherFailure','cropCacheLearned','cropCacheNotLearned'];
+    function cropCount(name) { var c=liveCall.cropStats||(liveCall.cropStats={}); c[name]=(c[name]||0)+1; }
+    function cropMiss(name,expected,actual) {
+        cropCount(name);
+        if(!liveCall.cropSample && name!=='cropCacheNoShape') liveCall.cropSample=name+': expected '+typeof expected+' '+String(expected)+', actual '+typeof actual+' '+String(actual);
+        return null;
+    }
     function cachedCrop(c) {
         var shape=cropShape;
-        if(!shape) return null;
-        var components=c.components;
-        if(components.numItems!==shape.components) return null;
-        var comp=components[shape.index];
-        if(String(comp.matchName)!==shape.matchName) return null;
-        var props=comp.properties;
-        if(count(props)!==shape.properties) return null;
-        var mapped={};
-        for(var i=0;i<CROP_NAMES.length;i++) {
-            var p=props[shape.indices[CROP_NAMES[i]]];
-            if(String(p.displayName)!==CROP_NAMES[i]) return null;
-            mapped[CROP_NAMES[i]]=p;
-        }
-        return {index:shape.index,component:comp,params:mapped,indices:shape.indices};
+        if(!shape) return cropMiss('cropCacheNoShape','shape','none');
+        try {
+            var components=c.components,total=components.numItems;
+            if(total!==shape.components) return cropMiss('cropCacheComponentCountMismatch',shape.components,total);
+            var comp=components[shape.index];
+            if(comp===undefined || comp===null) return cropMiss('cropCacheComponentMissing',shape.index,comp);
+            var rawMatch=comp.matchName;
+            if(String(rawMatch)!==shape.matchName) return cropMiss('cropCacheMatchNameMismatch',shape.matchName,rawMatch);
+            var props=comp.properties;
+            if(props===undefined || props===null) return cropMiss('cropCachePropertyMissing','properties',props);
+            var propertyTotal=count(props);
+            if(propertyTotal!==shape.properties) return cropMiss('cropCachePropertyCountMismatch',shape.properties,propertyTotal);
+            var mapped={};
+            for(var i=0;i<CROP_NAMES.length;i++) {
+                var p=props[shape.indices[CROP_NAMES[i]]];
+                if(p===undefined || p===null) return cropMiss('cropCachePropertyMissing',shape.indices[CROP_NAMES[i]],p);
+                var rawName=p.displayName;
+                if(String(rawName)!==CROP_NAMES[i]) return cropMiss('cropCachePropertyNameMismatch',CROP_NAMES[i],rawName);
+                mapped[CROP_NAMES[i]]=p;
+            }
+            return {index:shape.index,component:comp,params:mapped,indices:shape.indices};
+        } catch(e) { return cropMiss('cropCacheOtherFailure','no exception',e.message); }
     }
     function crop(c,quick) {
         if(quick) {
@@ -140,7 +156,16 @@ var KG23 = (function () {
         for(i=0;i<names.length;i++) if(!mapped[names[i]]) error('Không nhận diện thuộc tính Crop. Bản 1.0 cần giao diện Premiere tiếng Anh; dùng Xuất log để kiểm tra.');
         obj.params=mapped; obj.indices=idx;
         // Learn only from the built-in Crop matched by matchName, never from a displayName-only match.
-        if(quick && /(^|[ .])Crop$/i.test(obj.matchName)) cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx};
+        if(quick) {
+            if(/(^|[ .])Crop$/i.test(obj.matchName)) {
+                cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx};
+                cropCount('cropCacheLearned');
+                if(!liveCall.cropLearnSample) liveCall.cropLearnSample='components '+typeof componentCount+' '+componentCount+', index '+obj.index+', matchName '+obj.matchName+', properties '+typeof propertyCount+' '+propertyCount+', indices '+JSON.stringify(idx);
+            } else {
+                cropCount('cropCacheNotLearned');
+                if(!liveCall.cropLearnSample) liveCall.cropLearnSample='not learned: matchName '+obj.matchName+' does not end in Crop (matched by displayName)';
+            }
+        }
         return obj;
     }
     function snapshot(param) {
@@ -427,7 +452,7 @@ var KG23 = (function () {
         if(!plans.length || plans.length>5000) error('Lô ghi phải có từ 1 đến 5000 cue.');
         var budget=req.maxMillis===undefined?30000:req.maxMillis;
         if(!number(budget)||budget<100||budget>60000)error('Thời gian mỗi lượt phải từ 100 đến 60000 ms.');
-        var began=new Date().getTime(),stats={preflightMs:0,cropMs:0,cropCacheHits:0,cropFullScans:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
+        var began=new Date().getTime(),stats={cropSample:'',cropLearnSample:'',preflightMs:0,cropMs:0,cropCacheHits:0,cropFullScans:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
         // Keep slot indices across yields. getClip validates count and live ID;
         // Only color clip identity, timing, Crop and track lock are checked.
         var s=seq();batchContext=cachedContext(s,sequenceFps(s));
@@ -445,6 +470,9 @@ var KG23 = (function () {
             // Yield only between complete cues, never halfway through both layers.
             if(new Date().getTime()-began>=budget)break;
         }
+        var cropStats=liveCall.cropStats||{};
+        for(var cc=0;cc<CROP_CACHE_COUNTERS.length;cc++) stats[CROP_CACHE_COUNTERS[cc]]=cropStats[CROP_CACHE_COUNTERS[cc]]||0;
+        stats.cropSample=liveCall.cropSample||'';stats.cropLearnSample=liveCall.cropLearnSample||'';
         var refreshStart=new Date().getTime();
         if(refresh)try {
             if(refresh.constant)checkRC(refresh.param.setValue(refresh.value,true),'Làm mới giao diện');
