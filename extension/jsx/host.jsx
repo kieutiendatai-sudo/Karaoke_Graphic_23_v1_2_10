@@ -6,22 +6,45 @@ var KG23 = (function () {
     function error(s) { throw new Error(s); }
     function time(seconds) { var t = new Time(); t.seconds = seconds; return t; }
     function number(n) { return typeof n === 'number' && isFinite(n); }
+    // Lightweight timers for diagnostics. lap() returns microseconds since its previous call ($.hiresTimer
+    // resets on every read); without it (tests, other hosts) it falls back to millisecond Date differences.
+    var HIRES=(typeof $!=='undefined' && $ && typeof $.hiresTimer==='number'), lapClock=0;
+    function lap() {
+        if(HIRES) return $.hiresTimer;
+        var now=new Date().getTime(),d=(now-lapClock)*1000;lapClock=now;return d;
+    }
+    function setupTick(name) {
+        var d=lap();
+        if(!liveCall) return;
+        var t=liveCall.setup||(liveCall.setup={});t[name]=(t[name]||0)+d;
+    }
+    function kfMetrics() {
+        return liveCall.kf||(liveCall.kf={setTimeVaryingUs:0,getKeysUs:0,removeKeyUs:0,timeObjectUs:0,addKeyUs:0,setValueAtKeyUs:0,setInterpolationUs:0,staticWriteUs:0,
+            setTimeVaryingCalls:0,getKeysCalls:0,existingKeys:0,cuesWithUnexpectedKeys:0,keysRemoved:0,keysAdded:0,valuesWritten:0,interpolationWrites:0,staticValueWrites:0});
+    }
     function seq() {
         if(liveCall && liveCall.sequence) return liveCall.sequence;
+        lap();
         if (parseInt(app.version,10) !== 23) error('Bản này dành cho Premiere 23.x.');
+        setupTick('appVersionUs');
         var s=app.project.activeSequence;
+        setupTick('activeSequenceUs');
         if(!s) error('Mở một sequence trước.');
         if(liveCall)liveCall.sequence=s;
         return s;
     }
     function projectKey(s) {
         if(liveCall && liveCall.sequence===s && liveCall.project) return liveCall.project;
-        var key=String(app.project.documentID || app.project.path || '')+'|'+String(s.sequenceID);
+        lap();
+        var projectId=app.project.documentID || app.project.path || '';
+        setupTick('projectIdUs');
+        var key=String(projectId)+'|'+String(s.sequenceID);
+        setupTick('sequenceIdUs');
         if(liveCall && liveCall.sequence===s)liveCall.project=key;
         return key;
     }
     function sequenceFps(s) {
-        if(liveCall.fps===undefined)liveCall.fps=TPS/Number(s.timebase);
+        if(liveCall.fps===undefined){lap();liveCall.fps=TPS/Number(s.timebase);setupTick('timebaseUs');}
         return liveCall.fps;
     }
     // Adobe wrappers are reused only inside one synchronous call and released
@@ -388,34 +411,47 @@ var KG23 = (function () {
         var stats={preflightMs:new Date().getTime()-began,cropMs:(liveCall.cropMs||0)-cropBefore,cropCacheHits:(liveCall.cropHits||0)-hitsBefore,cropFullScans:(liveCall.cropScans||0)-scansBefore,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0};
         try {
             for(var i=0;i<list.length;i++) {
-                var entry=list[i], item=plan.items[i], p=entry.crop.params,rec=entry.record;
+                var entry=list[i], item=plan.items[i], p=entry.crop.params,rec=entry.record,kf=kfMetrics();
                 touched.push(rec);
                 var writeStart=new Date().getTime();
                 var desired={Left:0,Top:item.top,Bottom:item.bottom};
                 for(var field in desired)if(desired.hasOwnProperty(field)) {
                     if(rec.before[field].value===desired[field])stats.skippedWrites++;
-                    else checkRC(p[field].setValue(desired[field],false),'Crop '+field);
+                    else {
+                        lap();
+                        checkRC(p[field].setValue(desired[field],false),'Crop '+field);
+                        kf.staticWriteUs+=lap();kf.staticValueWrites++;
+                    }
                 }
                 // One value from frame zero describes a constant stream (e.g.
                 // the unused lower layer). Avoid creating an animation for it.
                 var constant=item.keys.length===1 && item.keys[0].frame===0;
                 if(constant) {
-                    if(rec.before.Right.value!==item.keys[0].value)checkRC(p.Right.setValue(item.keys[0].value,false),'Crop Right');
+                    if(rec.before.Right.value!==item.keys[0].value){lap();checkRC(p.Right.setValue(item.keys[0].value,false),'Crop Right');kf.staticWriteUs+=lap();kf.staticValueWrites++;}
                     else stats.skippedWrites++;
                     refresh={param:p.Right,value:item.keys[0].value,constant:true};
                     stats.staticLayers++;
                     if(!deferRefresh && i===list.length-1)checkRC(p.Right.setValue(item.keys[0].value,true),'Làm mới giao diện');
                 } else {
                 var keyframeStart=new Date().getTime();
+                lap();
                 checkRC(p.Right.setTimeVarying(true),'Bật keyframe');
+                kf.setTimeVaryingUs+=lap();kf.setTimeVaryingCalls++;
                 var autoKeys=p.Right.getKeys();
-                if(autoKeys && autoKeys.length) for(var a=autoKeys.length-1;a>=0;a--) checkRC(p.Right.removeKey(autoKeys[a]),'Xóa keyframe tự sinh');
+                kf.getKeysUs+=lap();kf.getKeysCalls++;
+                var existingKeys=autoKeys && autoKeys.length?autoKeys.length:0;
+                kf.existingKeys+=existingKeys;if(existingKeys!==1)kf.cuesWithUnexpectedKeys++;
+                if(autoKeys && autoKeys.length) for(var a=autoKeys.length-1;a>=0;a--) {checkRC(p.Right.removeKey(autoKeys[a]),'Xóa keyframe tự sinh');kf.removeKeyUs+=lap();kf.keysRemoved++;}
                 for(var j=0;j<item.keys.length;j++) {
                     var k=item.keys[j], t=liveCall.keyTime||(liveCall.keyTime=time(0));
                     t.seconds=entry.inPoint+k.frame/plan.fps;
+                    kf.timeObjectUs+=lap();
                     checkRC(p.Right.addKey(t),'Thêm keyframe');
+                    kf.addKeyUs+=lap();kf.keysAdded++;
                     checkRC(p.Right.setValueAtKey(t,k.value,false),'Ghi keyframe');
+                    kf.setValueAtKeyUs+=lap();kf.valuesWritten++;
                     checkRC(p.Right.setInterpolationTypeAtKey(t,k.interp,!deferRefresh&&i===list.length-1&&j===item.keys.length-1),'Nội suy keyframe');
+                    kf.setInterpolationUs+=lap();kf.interpolationWrites++;
                 }
                 refresh={param:p.Right,seconds:t.seconds,interp:k.interp};
                 stats.keyframes+=item.keys.length;
@@ -478,6 +514,15 @@ var KG23 = (function () {
             // Yield only between complete cues, never halfway through both layers.
             if(new Date().getTime()-began>=budget)break;
         }
+        var kfOut=kfMetrics(),setupParts=liveCall.setup||{},ms=function(us){return Math.round(us)/1000;};
+        stats.timerSource=HIRES?'hires':'date';
+        stats.kfSetTimeVaryingMs=ms(kfOut.setTimeVaryingUs);stats.kfGetKeysMs=ms(kfOut.getKeysUs);stats.kfRemoveKeyMs=ms(kfOut.removeKeyUs);stats.kfTimeObjectMs=ms(kfOut.timeObjectUs);
+        stats.kfAddKeyMs=ms(kfOut.addKeyUs);stats.kfSetValueAtKeyMs=ms(kfOut.setValueAtKeyUs);stats.kfSetInterpolationMs=ms(kfOut.setInterpolationUs);stats.staticWriteMs=ms(kfOut.staticWriteUs);
+        stats.kfSetTimeVaryingCalls=kfOut.setTimeVaryingCalls;stats.kfGetKeysCalls=kfOut.getKeysCalls;stats.kfExistingKeys=kfOut.existingKeys;stats.kfCuesWithUnexpectedKeys=kfOut.cuesWithUnexpectedKeys;
+        stats.kfKeysRemoved=kfOut.keysRemoved;stats.kfKeysAdded=kfOut.keysAdded;stats.kfValuesWritten=kfOut.valuesWritten;stats.kfInterpolationWrites=kfOut.interpolationWrites;stats.staticValueWrites=kfOut.staticValueWrites;
+        stats.setupAppVersionMs=ms(setupParts.appVersionUs||0);stats.setupActiveSequenceMs=ms(setupParts.activeSequenceUs||0);stats.setupProjectIdMs=ms(setupParts.projectIdUs||0);
+        stats.setupSequenceIdMs=ms(setupParts.sequenceIdUs||0);stats.setupTimebaseMs=ms(setupParts.timebaseUs||0);
+        stats.setupUnattributedMs=Math.round((stats.setupMs-stats.setupAppVersionMs-stats.setupActiveSequenceMs-stats.setupProjectIdMs-stats.setupSequenceIdMs-stats.setupTimebaseMs)*1000)/1000;
         var cropStats=liveCall.cropStats||{};
         for(var cc=0;cc<CROP_CACHE_COUNTERS.length;cc++) stats[CROP_CACHE_COUNTERS[cc]]=cropStats[CROP_CACHE_COUNTERS[cc]]||0;
         stats.cropSample=liveCall.cropSample||'';stats.cropLearnSample=liveCall.cropLearnSample||'';

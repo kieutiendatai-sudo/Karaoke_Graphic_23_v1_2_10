@@ -150,7 +150,7 @@
        for(var n=0;n<result.applied;n++){group[n].row.done=true;done++;}$('progress').value=done;i+=result.applied;
        if(result.stats)Object.keys(stats).forEach(function(k){stats[k]+=result.stats[k]||0;});
        log('Đã áp dụng '+done+'/'+plans.length+' cue.');
-       if(result.stats){var st=result.stats;log('Lượt '+result.applied+' cue · '+elapsed(performance.now()-roundStarted)+' · '+(st.keyframes||0)+' keyframe.');var cc=Object.keys(st).filter(function(k){return /^(cropCache|cropFullScans|cropSample|cropLearnSample)/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(cc)log('Bộ nhớ đệm Crop: '+cc);}
+       if(result.stats){var st=result.stats;log('Lượt '+result.applied+' cue · '+elapsed(performance.now()-roundStarted)+' · '+(st.keyframes||0)+' keyframe.');var cc=Object.keys(st).filter(function(k){return /^(cropCache|cropFullScans|cropSample|cropLearnSample)/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(cc)log('Bộ nhớ đệm Crop: '+cc);var kd=Object.keys(st).filter(function(k){return /^(kf|staticWriteMs|staticValueWrites|timerSource|setup(App|Active|Project|Sequence|Timebase|Unattributed))/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(kd)log('Chi tiết keyframe/thiết lập: '+kd);}
        if(result.warning)log(result.warning);
        if(result.error)throw new Error('Dừng ở cue '+(group[result.applied]?group[result.applied].row.cue.id:'cuối lô')+': '+result.error);
        if(!result.applied)throw new Error('Host không trả tiến độ ghi; đã dừng để tránh lặp vô hạn.');
