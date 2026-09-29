@@ -42,7 +42,7 @@ var KG23 = (function () {
     // Premiere 23 is inconsistent: Crop methods may report 0, true, undefined
     // or null after a successful write. Explicit error codes still stop the cue.
     function checkRC(r,what) { if(r!==0 && r!==undefined && r!==null && r!==true) error(what+' thất bại (mã '+r+').'); }
-    function count(a) { return typeof a.numItems==='number'?a.numItems:a.length; }
+    function count(a) { var n=a.numItems; return typeof n==='number'?n:a.length; }
     function describe(c,track) {
         return {id:String(c.nodeId),track:track,start:c.start.seconds,end:c.end.seconds,inPoint:c.inPoint.seconds,name:String(c.name),selected:!!c.isSelected()};
     }
@@ -103,11 +103,14 @@ var KG23 = (function () {
         if(found.length!==1) error('“'+c.name+'”: cần đúng 1 hiệu ứng Crop. Thêm Crop vào bản sao chữ màu rồi quét lại.');
         var obj=found[0], props=obj.component.properties, names=['Left','Top','Right','Bottom'], mapped={},idx={};
         var propertyCount=count(props);
+        var mappedCount=0;
         for(i=0;i<propertyCount;i++) {
             var p=props[i], label=String(p.displayName);
-            for(j=0;j<names.length;j++) if(label===names[j]) {mapped[label]=p;idx[label]=i;}
+            for(j=0;j<names.length;j++) if(label===names[j]) {if(!mapped[label])mappedCount++;mapped[label]=p;idx[label]=i;}
             if(!quick && label==='Zoom' && (p.isTimeVarying() || p.getValue())) error('Tắt Zoom trong Crop trước.');
             if(!quick && /Feather/i.test(label) && (p.isTimeVarying() || Math.abs(Number(p.getValue()))>0.00001)) error('Đặt Edge Feather của Crop về 0.');
+            // Quick (write) path checks no other property: stop once Left/Top/Right/Bottom are mapped.
+            if(quick && mappedCount===names.length) break;
         }
         for(i=0;i<names.length;i++) if(!mapped[names[i]]) error('Không nhận diện thuộc tính Crop. Bản 1.0 cần giao diện Premiere tiếng Anh; dùng Xuất log để kiểm tra.');
         obj.params=mapped; obj.indices=idx;
