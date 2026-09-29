@@ -19,6 +19,8 @@
          var wall=performance.now()-started,p=r.profile,gap=Math.max(0,wall-p.hostMs);
          rpcMetrics.push({method:method,payloadChars:payload.length,wallMs:wall,host:p,stats:r.value&&r.value.stats||null,outsideHostMs:gap,visibilityStart:visibility,visibilityEnd:document.visibilityState||'unknown'});
          if(rpcMetrics.length>1000)rpcMetrics.shift();
+         if(p.session){var se=p.session;log('Bối cảnh host: lệnh #'+se.hostCallSerial+', tuổi '+elapsed(se.hostAgeMs)+', đã ghi '+se.sessionHistory+' cue/'+se.sessionKeyframesWritten+' keyframe, inspect '+se.sessionInspectCalls+' lần, forgetSession '+se.sessionForgetCalls+', hoàn tác '+se.sessionUndoCalls+', từ lần ghi cuối '+(se.sinceLastWriteMs<0?'chưa ghi':elapsed(se.sinceLastWriteMs))+'.');}
+         if(method==='inspect'&&r.value&&r.value.stats){var ist=r.value.stats;log('Chi tiết inspect: '+Object.keys(ist).filter(function(k){return ist[k];}).map(function(k){return k+'='+ist[k];}).join('; '));}
          log('Đo '+method+': tổng '+elapsed(wall)+'; host '+elapsed(p.hostMs)+' (payload '+(p.payloadChars||0)+' ký tự; giải mã ['+(p.jsonMode||'?')+'] '+elapsed(p.parseMs)+' = decodeURI '+elapsed(p.decodeMs||0)+' + JSON '+elapsed(p.jsonMs||0)+', xử lý '+elapsed(p.methodMs)+', đóng gói '+elapsed(p.serializeMs)+'); ngoài host ≈ '+elapsed(gap)+'; panel '+visibility+' → '+(document.visibilityState||'unknown')+'.');
        }
        resolve(r.value);
@@ -150,7 +152,7 @@
        for(var n=0;n<result.applied;n++){group[n].row.done=true;done++;}$('progress').value=done;i+=result.applied;
        if(result.stats)Object.keys(stats).forEach(function(k){stats[k]+=result.stats[k]||0;});
        log('Đã áp dụng '+done+'/'+plans.length+' cue.');
-       if(result.stats){var st=result.stats;log('Lượt '+result.applied+' cue · '+elapsed(performance.now()-roundStarted)+' · '+(st.keyframes||0)+' keyframe.');var cc=Object.keys(st).filter(function(k){return /^(cropCache|cropFullScans|cropSample|cropLearnSample)/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(cc)log('Bộ nhớ đệm Crop: '+cc);var kd=Object.keys(st).filter(function(k){return /^(kf|staticWriteMs|staticValueWrites|timerSource|setup(App|Active|Project|Sequence|Timebase|Unattributed))/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(kd)log('Chi tiết keyframe/thiết lập: '+kd);}
+       if(result.stats){var st=result.stats;log('Lượt '+result.applied+' cue · '+elapsed(performance.now()-roundStarted)+' · '+(st.keyframes||0)+' keyframe.');var cc=Object.keys(st).filter(function(k){return /^(cropCache|cropFullScans|cropSample|cropLearnSample)/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(cc)log('Bộ nhớ đệm Crop: '+cc);var kd=Object.keys(st).filter(function(k){return /^(kf|staticWriteMs|staticValueWrites|timerSource|setup(App|Active|Project|Sequence|Timebase|Unattributed))/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(kd)log('Chi tiết keyframe/thiết lập: '+kd);var pd=Object.keys(st).filter(function(k){return /^(pf|activeSequenceAfterWritesMs)/.test(k)&&st[k];}).map(function(k){return k+'='+st[k];}).join('; ');if(pd)log('Chi tiết preflight: '+pd);}
        if(result.warning)log(result.warning);
        if(result.error)throw new Error('Dừng ở cue '+(group[result.applied]?group[result.applied].row.cue.id:'cuối lô')+': '+result.error);
        if(!result.applied)throw new Error('Host không trả tiến độ ghi; đã dừng để tránh lặp vô hạn.');

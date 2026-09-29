@@ -95,7 +95,8 @@ test('Live Adobe collections and FPS are read once per call, not once per cue',(
  const f=fixture(500);assert(f.call('prepareAll',preparation(f)).ok);
  Object.keys(f.reads).forEach(k=>f.reads[k]=0);
  const r=f.call('applyBatch',compact(f.plans));assert(r.ok);assert.equal(r.value.applied,500);
- assert.equal(f.reads.sequence,1);assert.equal(f.reads.project,1);assert.equal(f.reads.tracks,1);assert.equal(f.reads.fps,1);
+ // activeSequence: 1 real read + 2 read-only timing probes per call (repeat read in seq(), one after the writes); never per cue.
+ assert.equal(f.reads.sequence,3);assert.equal(f.reads.project,1);assert.equal(f.reads.tracks,1);assert.equal(f.reads.fps,1);
  assert.equal(f.reads.clips0,0);assert.equal(f.reads.clips1,1);assert.equal(f.reads.baseStarts,0);
 });
 test('Persistent slots cannot hide moves, replacements, duplicates or lock changes between calls',()=>{

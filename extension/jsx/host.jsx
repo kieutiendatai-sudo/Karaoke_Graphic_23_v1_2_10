@@ -2,7 +2,7 @@
 /* Premiere 23 CEP host. No QE API, no project save, no clip deletion. */
 if (typeof KG23 === 'undefined') {
 var KG23 = (function () {
-    var history = [], historyByKey = {}, TPS = 254016000000, batchContext = null, lastInspect=null, resetPlan=null, resetSerial=0, liveCall=null, runCache=null, runSerial=0, cropShape=null;
+    var history = [], historyByKey = {}, TPS = 254016000000, batchContext = null, lastInspect=null, resetPlan=null, resetSerial=0, liveCall=null, runCache=null, runSerial=0, cropShape=null, loadedAt=new Date().getTime(), callSerial=0, sessionKeyframes=0, inspectCalls=0, forgetCalls=0, undoCalls=0, lastWriteAt=0;
     function error(s) { throw new Error(s); }
     function time(seconds) { var t = new Time(); t.seconds = seconds; return t; }
     function number(n) { return typeof n === 'number' && isFinite(n); }
@@ -18,9 +18,15 @@ var KG23 = (function () {
         if(!liveCall) return;
         var t=liveCall.setup||(liveCall.setup={});t[name]=(t[name]||0)+d;
     }
+    // Preflight (per-cue read side) and inspect timers: preallocated numeric fields, microseconds and counts.
+    function pfMetrics() {
+        return liveCall.pf||(liveCall.pf={trackVideoTracksUs:0,trackNumTracksUs:0,trackRefUs:0,trackClipsUs:0,trackNumItemsUs:0,trackLockedUs:0,clipRefUs:0,nodeIdUs:0,startUs:0,endUs:0,inPointUs:0,
+            cropComponentsUs:0,cropComponentRefUs:0,cropPropertiesUs:0,cropPropertyNamesUs:0,isTimeVaryingUs:0,getValueUs:0,
+            clipRefReads:0,nodeIdReads:0,startReads:0,endReads:0,inPointReads:0,isTimeVaryingCalls:0,getValueCalls:0});
+    }
     function kfMetrics() {
         return liveCall.kf||(liveCall.kf={setTimeVaryingUs:0,getKeysUs:0,removeKeyUs:0,timeObjectUs:0,addKeyUs:0,setValueAtKeyUs:0,setInterpolationUs:0,staticWriteUs:0,
-            setTimeVaryingCalls:0,getKeysCalls:0,existingKeys:0,cuesWithUnexpectedKeys:0,keysRemoved:0,keysAdded:0,valuesWritten:0,interpolationWrites:0,staticValueWrites:0});
+            setTimeVaryingCalls:0,getKeysCalls:0,existingKeys:0,cuesWithZeroKeys:0,cuesWithOneKey:0,cuesWithManyKeys:0,keysRemoved:0,keysAdded:0,valuesWritten:0,interpolationWrites:0,staticValueWrites:0});
     }
     function seq() {
         if(liveCall && liveCall.sequence) return liveCall.sequence;
@@ -29,6 +35,9 @@ var KG23 = (function () {
         setupTick('appVersionUs');
         var s=app.project.activeSequence;
         setupTick('activeSequenceUs');
+        // Read-only probe: is a second read in the same call as slow as the first?
+        var repeated=app.project.activeSequence;
+        setupTick('activeSequenceRepeatUs');
         if(!s) error('Mở một sequence trước.');
         if(liveCall)liveCall.sequence=s;
         return s;
@@ -50,13 +59,18 @@ var KG23 = (function () {
     // Adobe wrappers are reused only inside one synchronous call and released
     // before returning to CEP. Slot IDs/timing are resolved live on every call.
     function trackData(s,track) {
-        var tracks=liveCall.videoTracks||(liveCall.videoTracks=s.videoTracks);
-        if(liveCall.trackCount===undefined)liveCall.trackCount=tracks.numTracks;
+        var pf=pfMetrics();
+        if(!liveCall.videoTracks){lap();liveCall.videoTracks=s.videoTracks;pf.trackVideoTracksUs+=lap();}
+        var tracks=liveCall.videoTracks;
+        if(liveCall.trackCount===undefined){lap();liveCall.trackCount=tracks.numTracks;pf.trackNumTracksUs+=lap();}
         if(track<0 || track>=liveCall.trackCount)error('Track không tồn tại.');
         var key=String(track),data=liveCall.tracks[key];
         if(!data) {
-            var ref=tracks[track],clips=ref.clips;
-            data={track:ref,clips:clips,count:clips.numItems,scanned:[],locked:typeof ref.isLocked==='function' && ref.isLocked()};
+            lap();var ref=tracks[track];pf.trackRefUs+=lap();
+            var clips=ref.clips;pf.trackClipsUs+=lap();
+            var clipCount=clips.numItems;pf.trackNumItemsUs+=lap();
+            var isLocked=typeof ref.isLocked==='function' && ref.isLocked();pf.trackLockedUs+=lap();
+            data={track:ref,clips:clips,count:clipCount,scanned:[],locked:isLocked};
             liveCall.tracks[key]=data;
         }
         return data;
@@ -96,9 +110,10 @@ var KG23 = (function () {
             var index=trackIndex(s,track,fps,ctx),slot=index.ids['$'+String(id)];
             var scanned=slot===undefined?null:data.scanned[slot];
             if(scanned && scanned.id===String(id))return scanned.clip;
-            var hit=slot===undefined?null:data.clips[slot];
+            var pf=pfMetrics();
+            lap();var hit=slot===undefined?null:data.clips[slot];pf.clipRefUs+=lap();pf.clipRefReads++;
             // Resolve the current collection slot, never reuse a detached host clip.
-            if(hit && String(hit.nodeId)===String(id)) return hit;
+            if(hit) {var hitId=hit.nodeId;pf.nodeIdUs+=lap();pf.nodeIdReads++;if(String(hitId)===String(id)) return hit;}
             delete ctx.tracks[String(track)];
             index=trackIndex(s,track,fps,ctx);slot=index.ids['$'+String(id)];
             hit=slot===undefined?null:data.clips[slot];
@@ -139,21 +154,22 @@ var KG23 = (function () {
         var shape=cropShape;
         if(!shape) return cropMiss('cropCacheNoShape','shape','none');
         try {
-            var components=c.components,total=components.numItems;
+            var pf=pfMetrics();
+            lap();var components=c.components,total=components.numItems;pf.cropComponentsUs+=lap();
             if(total!==shape.components) return cropMiss('cropCacheComponentCountMismatch',shape.components,total);
             var comp=components[shape.index];
             if(comp===undefined || comp===null) return cropMiss('cropCacheComponentMissing',shape.index,comp);
-            var rawMatch=comp.matchName;
+            var rawMatch=comp.matchName;pf.cropComponentRefUs+=lap();
             if(String(rawMatch)!==shape.matchName) return cropMiss('cropCacheMatchNameMismatch',shape.matchName,rawMatch);
             var props=comp.properties;
             if(props===undefined || props===null) return cropMiss('cropCachePropertyMissing','properties',props);
-            var propertyTotal=count(props);
+            var propertyTotal=count(props);pf.cropPropertiesUs+=lap();
             if(propertyTotal!==shape.properties) return cropMiss('cropCachePropertyCountMismatch',shape.properties,propertyTotal);
             var mapped={};
             for(var i=0;i<CROP_NAMES.length;i++) {
                 var p=props[shape.indices[CROP_NAMES[i]]];
                 if(p===undefined || p===null) return cropMiss('cropCachePropertyMissing',shape.indices[CROP_NAMES[i]],p);
-                var rawName=p.displayName;
+                var rawName=p.displayName;pf.cropPropertyNamesUs+=lap();
                 if(String(rawName)!==CROP_NAMES[i]) return cropMiss('cropCachePropertyNameMismatch',CROP_NAMES[i],rawName);
                 mapped[CROP_NAMES[i]]=p;
             }
@@ -243,15 +259,32 @@ var KG23 = (function () {
         if(Math.abs(c.getSpeed()-1)>0.000001 || c.isSpeedReversed()) error('Chỉ hỗ trợ clip tốc độ 100%, không đảo ngược.');
     }
     function inspect(opts) {
-        var s=seq(), settings=s.getSettings(), fps=sequenceFps(s), track=opts.track-1;
+        var inspectBegan=new Date().getTime(),ip={settingsUs:0,videoTracksUs:0,numTracksUs:0,trackRefUs:0,clipsUs:0,numItemsUs:0,clipRefUs:0,isSelectedUs:0,nodeIdUs:0,startUs:0,endUs:0,inPointUs:0,nameUs:0,summaryUs:0,activeSequenceAgainUs:0,scanned:0};
+        var s=seq();
+        lap();var settings=s.getSettings();ip.settingsUs+=lap();
+        var fps=sequenceFps(s), track=opts.track-1;
         if(!number(fps)||fps<1) error('Không đọc được FPS.');
-        if(track<0||track>=s.videoTracks.numTracks) error('Track chữ màu không tồn tại.');
-        var clips=s.videoTracks[track].clips, total=clips.numItems, list=[],fast=opts.fast===true;
+        var trackCountValue;
+        if(track>=0){lap();var videoTracksRef=s.videoTracks;ip.videoTracksUs+=lap();trackCountValue=videoTracksRef.numTracks;ip.numTracksUs+=lap();}
+        if(track<0||track>=trackCountValue) error('Track chữ màu không tồn tại.');
+        lap();var trackRef=s.videoTracks[track];ip.trackRefUs+=lap();
+        var clips=trackRef.clips;ip.clipsUs+=lap();
+        var total=clips.numItems;ip.numItemsUs+=lap();
+        var list=[],fast=opts.fast===true;
         var ctx=fast?newContext(s,fps):null,index={ids:{},starts:{},count:total,ordered:true},previous=-Infinity;
         for(var i=0;i<total;i++) {
-            var c=clips[i];
-            if(opts.selectedOnly && !c.isSelected()) continue;
-            var d=fast?{id:String(c.nodeId),track:track,start:c.start.seconds,end:c.end.seconds,inPoint:c.inPoint.seconds,name:String(c.name)}:describe(c,track);
+            lap();var c=clips[i];ip.clipRefUs+=lap();
+            if(opts.selectedOnly) {var isSelected=c.isSelected();ip.isSelectedUs+=lap();if(!isSelected) continue;}
+            var d;
+            if(fast) {
+                var cueId=String(c.nodeId);ip.nodeIdUs+=lap();
+                var cueStart=c.start.seconds;ip.startUs+=lap();
+                var cueEnd=c.end.seconds;ip.endUs+=lap();
+                var cueInPoint=c.inPoint.seconds;ip.inPointUs+=lap();
+                var cueName=String(c.name);ip.nameUs+=lap();
+                d={id:cueId,track:track,start:cueStart,end:cueEnd,inPoint:cueInPoint,name:cueName};
+                ip.scanned++;
+            } else d=describe(c,track);
             var rec=activeHistory(projectKey(s)+'|'+d.id);
             d.managed=false; d.error='';d.changed=false;
             if(rec && (rec.track!==track || rec.start===undefined || Math.abs(rec.start-d.start)>1e-7 || Math.abs(rec.end-d.end)>1e-7 || Math.abs(rec.inPoint-d.inPoint)>1e-7)) {forgetRecord(rec);rec=null;}
@@ -271,7 +304,19 @@ var KG23 = (function () {
             list.push(d);
         }
         if(ctx){ctx.tracks[String(track)]=index;batchContext=ctx;}
+        lap();
         lastInspect={project:projectKey(s),sequence:String(s.name),fps:fps,videoDisplayFormat:settings.videoDisplayFormat===undefined?s.videoDisplayFormat:settings.videoDisplayFormat,zeroSeconds:Number(s.zeroPoint||0)/TPS,width:settings.videoFrameWidth||s.frameSizeHorizontal,height:settings.videoFrameHeight||s.frameSizeVertical,clips:list,version:app.version,runtimeVersion:'1.2.10',undoCount:history.length};
+        ip.summaryUs+=lap();
+        // Read-only probe: a further activeSequence read at the end of the scan.
+        var again=app.project.activeSequence;ip.activeSequenceAgainUs+=lap();
+        var us=function(v){return Math.round(v)/1000;},setupParts=liveCall.setup||{},measured=ip.settingsUs+ip.videoTracksUs+ip.numTracksUs+ip.trackRefUs+ip.clipsUs+ip.numItemsUs+ip.clipRefUs+ip.isSelectedUs+ip.nodeIdUs+ip.startUs+ip.endUs+ip.inPointUs+ip.nameUs+ip.summaryUs+ip.activeSequenceAgainUs;
+        var setupMeasured=(setupParts.appVersionUs||0)+(setupParts.activeSequenceUs||0)+(setupParts.activeSequenceRepeatUs||0)+(setupParts.projectIdUs||0)+(setupParts.sequenceIdUs||0)+(setupParts.timebaseUs||0),totalMs=new Date().getTime()-inspectBegan;
+        lastInspect.stats={timerSource:HIRES?'hires':'date',inspTotalMs:totalMs,inspClips:total,inspClipsRead:ip.scanned,
+            setupAppVersionMs:us(setupParts.appVersionUs||0),setupActiveSequenceMs:us(setupParts.activeSequenceUs||0),setupActiveSequenceRepeatMs:us(setupParts.activeSequenceRepeatUs||0),setupProjectIdMs:us(setupParts.projectIdUs||0),setupSequenceIdMs:us(setupParts.sequenceIdUs||0),setupTimebaseMs:us(setupParts.timebaseUs||0),
+            inspSettingsMs:us(ip.settingsUs),inspVideoTracksMs:us(ip.videoTracksUs),inspNumTracksMs:us(ip.numTracksUs),inspTrackRefMs:us(ip.trackRefUs),inspClipsMs:us(ip.clipsUs),inspNumItemsMs:us(ip.numItemsUs),
+            inspClipRefMs:us(ip.clipRefUs),inspIsSelectedMs:us(ip.isSelectedUs),inspNodeIdMs:us(ip.nodeIdUs),inspStartMs:us(ip.startUs),inspEndMs:us(ip.endUs),inspInPointMs:us(ip.inPointUs),inspNameMs:us(ip.nameUs),
+            inspSummaryMs:us(ip.summaryUs),inspActiveSequenceAgainMs:us(ip.activeSequenceAgainUs),
+            inspOtherMs:Math.round((totalMs-(measured+setupMeasured)/1000)*1000)/1000};
         return lastInspect;
     }
     function partner(s,track,source,fps,ctx,bounds) {
@@ -322,7 +367,13 @@ var KG23 = (function () {
         if(!number(item.start)||!number(item.end)||!number(item.inPoint))error('Thời gian cue không hợp lệ.');
         var prepared=liveCall.prepared && liveCall.prepared['$'+item.id];
         var c=prepared?prepared.clip:getClip(s,item.track,item.id,ctx,plan.fps);
-        var start=prepared?prepared.start:c.start.seconds,end=prepared?prepared.end:c.end.seconds,inPoint=prepared?prepared.inPoint:c.inPoint.seconds;
+        var pf=pfMetrics(),start,end,inPoint;
+        if(prepared) {start=prepared.start;end=prepared.end;inPoint=prepared.inPoint;}
+        else {
+            lap();start=c.start.seconds;pf.startUs+=lap();pf.startReads++;
+            end=c.end.seconds;pf.endUs+=lap();pf.endReads++;
+            inPoint=c.inPoint.seconds;pf.inPointUs+=lap();pf.inPointReads++;
+        }
         if(trackData(s,item.track).locked) error('Track đang khóa.');
         if(Math.abs(start-item.start)>1e-7||Math.abs(end-item.end)>1e-7||Math.abs(inPoint-item.inPoint)>1e-7) error('Clip đã đổi thời gian. Quét lại.');
         var id=String(item.id),key=projectKey(s)+'|'+id,cropBegan=new Date().getTime(),obj=prepared?prepared.crop:crop(c,true),rec=activeHistory(key);
@@ -331,8 +382,10 @@ var KG23 = (function () {
         var names=['Left','Top','Right','Bottom'],before={};
         for(var n=0;n<names.length;n++) {
             var p=obj.params[names[n]];
-            if(p.isTimeVarying()) error('Crop có keyframe sẵn; không ghi đè.');
-            before[names[n]]={varying:false,keys:[],value:p.getValue()};
+            lap();var varying=p.isTimeVarying();pf.isTimeVaryingUs+=lap();pf.isTimeVaryingCalls++;
+            if(varying) error('Crop có keyframe sẵn; không ghi đè.');
+            var currentValue=p.getValue();pf.getValueUs+=lap();pf.getValueCalls++;
+            before[names[n]]={varying:false,keys:[],value:currentValue};
             if(!number(before[names[n]].value)) error('Giá trị Crop không phải số.');
         }
         validateKeys(item,plan.fps);
@@ -440,7 +493,7 @@ var KG23 = (function () {
                 var autoKeys=p.Right.getKeys();
                 kf.getKeysUs+=lap();kf.getKeysCalls++;
                 var existingKeys=autoKeys && autoKeys.length?autoKeys.length:0;
-                kf.existingKeys+=existingKeys;if(existingKeys!==1)kf.cuesWithUnexpectedKeys++;
+                kf.existingKeys+=existingKeys;if(existingKeys===0)kf.cuesWithZeroKeys++;else if(existingKeys===1)kf.cuesWithOneKey++;else kf.cuesWithManyKeys++;
                 if(autoKeys && autoKeys.length) for(var a=autoKeys.length-1;a>=0;a--) {checkRC(p.Right.removeKey(autoKeys[a]),'Xóa keyframe tự sinh');kf.removeKeyUs+=lap();kf.keysRemoved++;}
                 for(var j=0;j<item.keys.length;j++) {
                     var k=item.keys[j], t=liveCall.keyTime||(liveCall.keyTime=time(0));
@@ -514,15 +567,27 @@ var KG23 = (function () {
             // Yield only between complete cues, never halfway through both layers.
             if(new Date().getTime()-began>=budget)break;
         }
-        var kfOut=kfMetrics(),setupParts=liveCall.setup||{},ms=function(us){return Math.round(us)/1000;};
+        var pfOut=pfMetrics(),kfOut=kfMetrics(),setupParts=liveCall.setup||{},ms=function(us){return Math.round(us)/1000;};
+        // Read-only probe after this call's writes: compare with setupActiveSequenceMs (before the writes).
+        lap();var probe=app.project.activeSequence;stats.activeSequenceAfterWritesMs=ms(lap());
+        stats.pfTrackVideoTracksMs=ms(pfOut.trackVideoTracksUs);stats.pfTrackNumTracksMs=ms(pfOut.trackNumTracksUs);stats.pfTrackRefMs=ms(pfOut.trackRefUs);stats.pfTrackClipsMs=ms(pfOut.trackClipsUs);
+        stats.pfTrackNumItemsMs=ms(pfOut.trackNumItemsUs);stats.pfTrackLockedMs=ms(pfOut.trackLockedUs);stats.pfClipRefMs=ms(pfOut.clipRefUs);stats.pfNodeIdMs=ms(pfOut.nodeIdUs);
+        stats.pfStartMs=ms(pfOut.startUs);stats.pfEndMs=ms(pfOut.endUs);stats.pfInPointMs=ms(pfOut.inPointUs);
+        stats.pfCropComponentsMs=ms(pfOut.cropComponentsUs);stats.pfCropComponentRefMs=ms(pfOut.cropComponentRefUs);stats.pfCropPropertiesMs=ms(pfOut.cropPropertiesUs);stats.pfCropPropertyNamesMs=ms(pfOut.cropPropertyNamesUs);
+        stats.pfIsTimeVaryingMs=ms(pfOut.isTimeVaryingUs);stats.pfGetValueMs=ms(pfOut.getValueUs);
+        stats.pfClipRefReads=pfOut.clipRefReads;stats.pfNodeIdReads=pfOut.nodeIdReads;stats.pfStartReads=pfOut.startReads;stats.pfEndReads=pfOut.endReads;stats.pfInPointReads=pfOut.inPointReads;
+        stats.pfIsTimeVaryingCalls=pfOut.isTimeVaryingCalls;stats.pfGetValueCalls=pfOut.getValueCalls;
+        // preflightMs minus every measured read (cropMs is the whole Crop lookup, so its fine-grained parts are not subtracted twice)
+        stats.pfOtherMs=Math.round((stats.preflightMs-stats.cropMs-stats.pfTrackVideoTracksMs-stats.pfTrackNumTracksMs-stats.pfTrackRefMs-stats.pfTrackClipsMs-stats.pfTrackNumItemsMs-stats.pfTrackLockedMs-stats.pfClipRefMs-stats.pfNodeIdMs-stats.pfStartMs-stats.pfEndMs-stats.pfInPointMs-stats.pfIsTimeVaryingMs-stats.pfGetValueMs)*1000)/1000;
+        sessionKeyframes+=stats.keyframes;if(out.length)lastWriteAt=new Date().getTime();
         stats.timerSource=HIRES?'hires':'date';
         stats.kfSetTimeVaryingMs=ms(kfOut.setTimeVaryingUs);stats.kfGetKeysMs=ms(kfOut.getKeysUs);stats.kfRemoveKeyMs=ms(kfOut.removeKeyUs);stats.kfTimeObjectMs=ms(kfOut.timeObjectUs);
         stats.kfAddKeyMs=ms(kfOut.addKeyUs);stats.kfSetValueAtKeyMs=ms(kfOut.setValueAtKeyUs);stats.kfSetInterpolationMs=ms(kfOut.setInterpolationUs);stats.staticWriteMs=ms(kfOut.staticWriteUs);
-        stats.kfSetTimeVaryingCalls=kfOut.setTimeVaryingCalls;stats.kfGetKeysCalls=kfOut.getKeysCalls;stats.kfExistingKeys=kfOut.existingKeys;stats.kfCuesWithUnexpectedKeys=kfOut.cuesWithUnexpectedKeys;
+        stats.kfSetTimeVaryingCalls=kfOut.setTimeVaryingCalls;stats.kfGetKeysCalls=kfOut.getKeysCalls;stats.kfExistingKeys=kfOut.existingKeys;stats.kfCuesWithZeroKeys=kfOut.cuesWithZeroKeys;stats.kfCuesWithOneKey=kfOut.cuesWithOneKey;stats.kfCuesWithManyKeys=kfOut.cuesWithManyKeys;
         stats.kfKeysRemoved=kfOut.keysRemoved;stats.kfKeysAdded=kfOut.keysAdded;stats.kfValuesWritten=kfOut.valuesWritten;stats.kfInterpolationWrites=kfOut.interpolationWrites;stats.staticValueWrites=kfOut.staticValueWrites;
         stats.setupAppVersionMs=ms(setupParts.appVersionUs||0);stats.setupActiveSequenceMs=ms(setupParts.activeSequenceUs||0);stats.setupProjectIdMs=ms(setupParts.projectIdUs||0);
-        stats.setupSequenceIdMs=ms(setupParts.sequenceIdUs||0);stats.setupTimebaseMs=ms(setupParts.timebaseUs||0);
-        stats.setupUnattributedMs=Math.round((stats.setupMs-stats.setupAppVersionMs-stats.setupActiveSequenceMs-stats.setupProjectIdMs-stats.setupSequenceIdMs-stats.setupTimebaseMs)*1000)/1000;
+        stats.setupActiveSequenceRepeatMs=ms(setupParts.activeSequenceRepeatUs||0);stats.setupSequenceIdMs=ms(setupParts.sequenceIdUs||0);stats.setupTimebaseMs=ms(setupParts.timebaseUs||0);
+        stats.setupUnattributedMs=Math.round((stats.setupMs-stats.setupAppVersionMs-stats.setupActiveSequenceMs-stats.setupActiveSequenceRepeatMs-stats.setupProjectIdMs-stats.setupSequenceIdMs-stats.setupTimebaseMs)*1000)/1000;
         var cropStats=liveCall.cropStats||{};
         for(var cc=0;cc<CROP_CACHE_COUNTERS.length;cc++) stats[CROP_CACHE_COUNTERS[cc]]=cropStats[CROP_CACHE_COUNTERS[cc]]||0;
         stats.cropSample=liveCall.cropSample||'';stats.cropLearnSample=liveCall.cropLearnSample||'';
@@ -684,6 +749,8 @@ var KG23 = (function () {
     }
     return {version:'1.2.10',parsePayload:parsePayload,call:function(method,payload) {
         var began=new Date().getTime();
+        var sessionContext={hostCallSerial:++callSerial,hostAgeMs:began-loadedAt,sessionHistory:history.length,sessionKeyframesWritten:sessionKeyframes,sessionInspectCalls:inspectCalls,sessionForgetCalls:forgetCalls,sessionUndoCalls:undoCalls,sinceLastWriteMs:lastWriteAt?began-lastWriteAt:-1};
+        if(method==='inspect')inspectCalls++;else if(method==='forgetSession')forgetCalls++;else if(method==='undo')undoCalls++;
         liveCall={tracks:{}};
         try {
             var decoded=payload?decodeURIComponent(payload):'',decodedAt=new Date().getTime();
@@ -707,7 +774,7 @@ var KG23 = (function () {
             else error('Lệnh không hợp lệ.');
             var executed=new Date().getTime(),encoded=JSON.stringify({ok:true,value:value}),finished=new Date().getTime();
             // Include decoding and serialization, which the per-cue timers exclude.
-            return '{"profile":'+JSON.stringify({jsonMode:parsedPayload.mode,payloadChars:payload?String(payload).length:0,decodeMs:decodedAt-began,jsonMs:parsed-decodedAt,parseMs:parsed-began,methodMs:executed-parsed,serializeMs:finished-executed,hostMs:finished-began})+','+encoded.substring(1);
+            return '{"profile":'+JSON.stringify({session:sessionContext,jsonMode:parsedPayload.mode,payloadChars:payload?String(payload).length:0,decodeMs:decodedAt-began,jsonMs:parsed-decodedAt,parseMs:parsed-began,methodMs:executed-parsed,serializeMs:finished-executed,hostMs:finished-began})+','+encoded.substring(1);
         }catch(e){return JSON.stringify({ok:false,error:String(e.message||e)});}
         finally{liveCall=null;}
     }};
