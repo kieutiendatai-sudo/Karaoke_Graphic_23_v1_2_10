@@ -2,7 +2,7 @@
 /* Premiere 23 CEP host. No QE API, no project save, no clip deletion. */
 if (typeof KG23 === 'undefined') {
 var KG23 = (function () {
-    var history = [], historyByKey = {}, TPS = 254016000000, batchContext = null, lastInspect=null, resetPlan=null, resetSerial=0, liveCall=null, runCache=null, runSerial=0;
+    var history = [], historyByKey = {}, TPS = 254016000000, batchContext = null, lastInspect=null, resetPlan=null, resetSerial=0, liveCall=null, runCache=null, runSerial=0, cropShape=null;
     function error(s) { throw new Error(s); }
     function time(seconds) { var t = new Time(); t.seconds = seconds; return t; }
     function number(n) { return typeof n === 'number' && isFinite(n); }
@@ -93,12 +93,37 @@ var KG23 = (function () {
         delete historyByKey['$'+rec.key];
         for(var i=history.length-1;i>=0;i--) if(history[i]===rec || history[i].key===rec.key) history.splice(i,1);
     }
+    var CROP_NAMES=['Left','Top','Right','Bottom'];
+    // Write path only. Plain data learned from a fully scanned clip (cropShape) is re-checked against
+    // this clip; any mismatch returns null and the caller runs the full scan below.
+    function cachedCrop(c) {
+        var shape=cropShape;
+        if(!shape) return null;
+        var components=c.components;
+        if(components.numItems!==shape.components) return null;
+        var comp=components[shape.index];
+        if(String(comp.matchName)!==shape.matchName) return null;
+        var props=comp.properties;
+        if(count(props)!==shape.properties) return null;
+        var mapped={};
+        for(var i=0;i<CROP_NAMES.length;i++) {
+            var p=props[shape.indices[CROP_NAMES[i]]];
+            if(String(p.displayName)!==CROP_NAMES[i]) return null;
+            mapped[CROP_NAMES[i]]=p;
+        }
+        return {index:shape.index,component:comp,params:mapped,indices:shape.indices};
+    }
     function crop(c,quick) {
-        var found=[],i,j,comp;
+        if(quick) {
+            var cached=cachedCrop(c);
+            if(cached) {liveCall.cropHits=(liveCall.cropHits||0)+1;return cached;}
+            liveCall.cropScans=(liveCall.cropScans||0)+1;
+        }
+        var found=[],i,j,comp,matchName;
         var components=c.components,componentCount=components.numItems;
         for(i=0;i<componentCount;i++) {
-            comp=components[i];
-            if(/(^|[ .])Crop$/i.test(String(comp.matchName)) || String(comp.displayName)==='Crop') found.push({index:i,component:comp});
+            comp=components[i];matchName=String(comp.matchName);
+            if(/(^|[ .])Crop$/i.test(matchName) || String(comp.displayName)==='Crop') found.push({index:i,component:comp,matchName:matchName});
         }
         if(found.length!==1) error('“'+c.name+'”: cần đúng 1 hiệu ứng Crop. Thêm Crop vào bản sao chữ màu rồi quét lại.');
         var obj=found[0], props=obj.component.properties, names=['Left','Top','Right','Bottom'], mapped={},idx={};
@@ -114,6 +139,8 @@ var KG23 = (function () {
         }
         for(i=0;i<names.length;i++) if(!mapped[names[i]]) error('Không nhận diện thuộc tính Crop. Bản 1.0 cần giao diện Premiere tiếng Anh; dùng Xuất log để kiểm tra.');
         obj.params=mapped; obj.indices=idx;
+        // Learn only from the built-in Crop matched by matchName, never from a displayName-only match.
+        if(quick && /(^|[ .])Crop$/i.test(obj.matchName)) cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx};
         return obj;
     }
     function snapshot(param) {
@@ -324,8 +351,8 @@ var KG23 = (function () {
     }
     function apply(plan,deferRefresh) {
         if(plan.items.length!==1) error('Chế độ 1 dòng chỉ cho phép đúng một lớp màu cho mỗi cue.');
-        var began=new Date().getTime(),cropBefore=liveCall.cropMs||0,list=preflight(plan), touched=[],refresh=null;
-        var stats={preflightMs:new Date().getTime()-began,cropMs:(liveCall.cropMs||0)-cropBefore,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0};
+        var began=new Date().getTime(),cropBefore=liveCall.cropMs||0,hitsBefore=liveCall.cropHits||0,scansBefore=liveCall.cropScans||0,list=preflight(plan), touched=[],refresh=null;
+        var stats={preflightMs:new Date().getTime()-began,cropMs:(liveCall.cropMs||0)-cropBefore,cropCacheHits:(liveCall.cropHits||0)-hitsBefore,cropFullScans:(liveCall.cropScans||0)-scansBefore,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0};
         try {
             for(var i=0;i<list.length;i++) {
                 var entry=list[i], item=plan.items[i], p=entry.crop.params,rec=entry.record;
@@ -400,7 +427,7 @@ var KG23 = (function () {
         if(!plans.length || plans.length>5000) error('Lô ghi phải có từ 1 đến 5000 cue.');
         var budget=req.maxMillis===undefined?30000:req.maxMillis;
         if(!number(budget)||budget<100||budget>60000)error('Thời gian mỗi lượt phải từ 100 đến 60000 ms.');
-        var began=new Date().getTime(),stats={preflightMs:0,cropMs:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
+        var began=new Date().getTime(),stats={preflightMs:0,cropMs:0,cropCacheHits:0,cropFullScans:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
         // Keep slot indices across yields. getClip validates count and live ID;
         // Only color clip identity, timing, Crop and track lock are checked.
         var s=seq();batchContext=cachedContext(s,sequenceFps(s));
@@ -410,7 +437,7 @@ var KG23 = (function () {
             try {
                 var result=apply(plans[i],true);refresh=result.refresh;out.push(String(plans[i].items[0].id));
                 if(liveCall.prepared)delete liveCall.prepared['$'+plans[i].items[0].id];
-                stats.preflightMs+=result.stats.preflightMs;stats.cropMs+=result.stats.cropMs;stats.keyframeMs+=result.stats.keyframeMs;stats.writeMs+=result.stats.writeMs;
+                stats.preflightMs+=result.stats.preflightMs;stats.cropMs+=result.stats.cropMs;stats.cropCacheHits+=result.stats.cropCacheHits;stats.cropFullScans+=result.stats.cropFullScans;stats.keyframeMs+=result.stats.keyframeMs;stats.writeMs+=result.stats.writeMs;
                 stats.verifyMs+=result.stats.verifyMs;stats.keyframes+=result.stats.keyframes;
                 stats.staticLayers+=result.stats.staticLayers;stats.skippedWrites+=result.stats.skippedWrites;
             }catch(e) {failure=String(e.message||e);break;}
@@ -427,7 +454,7 @@ var KG23 = (function () {
         return {applied:out.length,ids:out,error:failure,warning:warning,stats:stats,elapsedMs:new Date().getTime()-began};
     }
     function beginRun(req) {
-        runCache=null;
+        runCache=null;cropShape=null;
         var began=new Date().getTime(),plans=unpackPlans(req,true),ids={};
         if(!plans.length)error('Kế hoạch không có cue.');
         if(!number(req.count)||req.count%1!==0||req.count<1||req.count>5000)error('Số cue mỗi lượt không hợp lệ.');
@@ -462,7 +489,7 @@ var KG23 = (function () {
     }
     function forgetSession() {
         var forgotten=history.length;
-        history=[];historyByKey={};batchContext=null;lastInspect=null;resetPlan=null;
+        history=[];historyByKey={};batchContext=null;lastInspect=null;resetPlan=null;cropShape=null;
         return {forgotten:forgotten};
     }
     function resetPreview(req) {

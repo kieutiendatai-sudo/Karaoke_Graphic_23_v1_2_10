@@ -136,7 +136,7 @@
      if(canResume){plans=session.plans.slice(session.position);log('Tiếp tục cache: '+plans.length+' cue còn lại; không tính hoặc gửi lại toàn bộ kế hoạch.');}
      else{plans=await buildPlans(targets);runSession=null;}
      $('progress').max=plans.length;$('progress').value=0;
-     var nextSize=batchSize,cost=null,writeStarted=performance.now(),stats={preflightMs:0,cropMs:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,refreshMs:0,staticLayers:0,skippedWrites:0,cueMs:0,setupMs:0};
+     var nextSize=batchSize,cost=null,writeStarted=performance.now(),stats={preflightMs:0,cropMs:0,cropCacheHits:0,cropFullScans:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,refreshMs:0,staticLayers:0,skippedWrites:0,cueMs:0,setupMs:0};
      for(var i=0;i<plans.length;){if(stop)break;var roundStarted=performance.now(),group=plans.slice(i,i+nextSize),result;
        if(!runSession){
          var request=batchRequest(plans);request.count=nextSize;
@@ -159,7 +159,7 @@
        if(i<plans.length){var yieldStarted=performance.now();await yieldToPanel();var yieldMs=performance.now()-yieldStarted;if(yieldMs>=1000)log('Chờ chuyển lượt: '+elapsed(yieldMs)+'.');}
      }
      var writeSeconds=(performance.now()-writeStarted)/1000;
-     log('Áp dụng '+stats.keyframes+' keyframe trong '+C.duration(writeSeconds)+' · '+(done/Math.max(0.001,writeSeconds)).toFixed(1)+' cue/giây. Host các lượt ghi: kiểm tra '+elapsed(stats.preflightMs)+' (trong đó tìm Crop '+elapsed(stats.cropMs)+'), ghi '+elapsed(stats.writeMs)+' (trong đó keyframe '+elapsed(stats.keyframeMs)+'), cue '+elapsed(stats.cueMs)+', đọc lại '+elapsed(stats.verifyMs)+'.');
+     log('Áp dụng '+stats.keyframes+' keyframe trong '+C.duration(writeSeconds)+' · '+(done/Math.max(0.001,writeSeconds)).toFixed(1)+' cue/giây. Host các lượt ghi: kiểm tra '+elapsed(stats.preflightMs)+' (trong đó tìm Crop '+elapsed(stats.cropMs)+'; bộ nhớ đệm '+stats.cropCacheHits+' trúng, '+stats.cropFullScans+' quét đầy đủ), ghi '+elapsed(stats.writeMs)+' (trong đó keyframe '+elapsed(stats.keyframeMs)+'), cue '+elapsed(stats.cueMs)+', đọc lại '+elapsed(stats.verifyMs)+'.');
      log((stop?'Đã dừng. ':'Hoàn tất. ')+done+'/'+plans.length+' cue · '+elapsed(performance.now()-started)+'. Xem kết quả trong Program Monitor.');
    }catch(e){runSession=null;throw e;}finally{setBusy(false);refreshList();}
  }
