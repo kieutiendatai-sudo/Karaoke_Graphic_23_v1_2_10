@@ -239,7 +239,8 @@ var KG23 = (function () {
         var start=prepared?prepared.start:c.start.seconds,end=prepared?prepared.end:c.end.seconds,inPoint=prepared?prepared.inPoint:c.inPoint.seconds;
         if(trackData(s,item.track).locked) error('Track đang khóa.');
         if(Math.abs(start-item.start)>1e-7||Math.abs(end-item.end)>1e-7||Math.abs(inPoint-item.inPoint)>1e-7) error('Clip đã đổi thời gian. Quét lại.');
-        var id=String(item.id),key=projectKey(s)+'|'+id,obj=prepared?prepared.crop:crop(c,true),rec=activeHistory(key);
+        var id=String(item.id),key=projectKey(s)+'|'+id,cropBegan=new Date().getTime(),obj=prepared?prepared.crop:crop(c,true),rec=activeHistory(key);
+        liveCall.cropMs=(liveCall.cropMs||0)+new Date().getTime()-cropBegan;
         if(rec) error('Clip đã chạy. Hoàn tác trước nếu muốn đổi thông số.');
         var names=['Left','Top','Right','Bottom'],before={};
         for(var n=0;n<names.length;n++) {
@@ -320,8 +321,8 @@ var KG23 = (function () {
     }
     function apply(plan,deferRefresh) {
         if(plan.items.length!==1) error('Chế độ 1 dòng chỉ cho phép đúng một lớp màu cho mỗi cue.');
-        var began=new Date().getTime(),list=preflight(plan), touched=[],refresh=null;
-        var stats={preflightMs:new Date().getTime()-began,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0};
+        var began=new Date().getTime(),cropBefore=liveCall.cropMs||0,list=preflight(plan), touched=[],refresh=null;
+        var stats={preflightMs:new Date().getTime()-began,cropMs:(liveCall.cropMs||0)-cropBefore,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0};
         try {
             for(var i=0;i<list.length;i++) {
                 var entry=list[i], item=plan.items[i], p=entry.crop.params,rec=entry.record;
@@ -342,6 +343,7 @@ var KG23 = (function () {
                     stats.staticLayers++;
                     if(!deferRefresh && i===list.length-1)checkRC(p.Right.setValue(item.keys[0].value,true),'Làm mới giao diện');
                 } else {
+                var keyframeStart=new Date().getTime();
                 checkRC(p.Right.setTimeVarying(true),'Bật keyframe');
                 var autoKeys=p.Right.getKeys();
                 if(autoKeys && autoKeys.length) for(var a=autoKeys.length-1;a>=0;a--) checkRC(p.Right.removeKey(autoKeys[a]),'Xóa keyframe tự sinh');
@@ -354,6 +356,7 @@ var KG23 = (function () {
                 }
                 refresh={param:p.Right,seconds:t.seconds,interp:k.interp};
                 stats.keyframes+=item.keys.length;
+                stats.keyframeMs+=new Date().getTime()-keyframeStart;
                 }
                 stats.writeMs+=new Date().getTime()-writeStart;
                 // Keep the expected state for an explicit Undo or later scan.
@@ -394,7 +397,7 @@ var KG23 = (function () {
         if(!plans.length || plans.length>5000) error('Lô ghi phải có từ 1 đến 5000 cue.');
         var budget=req.maxMillis===undefined?30000:req.maxMillis;
         if(!number(budget)||budget<100||budget>60000)error('Thời gian mỗi lượt phải từ 100 đến 60000 ms.');
-        var began=new Date().getTime(),stats={preflightMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
+        var began=new Date().getTime(),stats={preflightMs:0,cropMs:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,staticLayers:0,skippedWrites:0,refreshMs:0,setupMs:0,cueMs:0};
         // Keep slot indices across yields. getClip validates count and live ID;
         // Only color clip identity, timing, Crop and track lock are checked.
         var s=seq();batchContext=cachedContext(s,sequenceFps(s));
@@ -404,7 +407,7 @@ var KG23 = (function () {
             try {
                 var result=apply(plans[i],true);refresh=result.refresh;out.push(String(plans[i].items[0].id));
                 if(liveCall.prepared)delete liveCall.prepared['$'+plans[i].items[0].id];
-                stats.preflightMs+=result.stats.preflightMs;stats.writeMs+=result.stats.writeMs;
+                stats.preflightMs+=result.stats.preflightMs;stats.cropMs+=result.stats.cropMs;stats.keyframeMs+=result.stats.keyframeMs;stats.writeMs+=result.stats.writeMs;
                 stats.verifyMs+=result.stats.verifyMs;stats.keyframes+=result.stats.keyframes;
                 stats.staticLayers+=result.stats.staticLayers;stats.skippedWrites+=result.stats.skippedWrites;
             }catch(e) {failure=String(e.message||e);break;}
@@ -554,7 +557,8 @@ var KG23 = (function () {
         var began=new Date().getTime();
         liveCall={tracks:{}};
         try {
-            var p=payload?JSON.parse(decodeURIComponent(payload)):{}, value;
+            var decoded=payload?decodeURIComponent(payload):'',decodedAt=new Date().getTime();
+            var p=decoded?JSON.parse(decoded):{}, value;
             var parsed=new Date().getTime();
             if(method==='inspect'||method==='undo'||method==='forgetSession'||method==='resetBatch')runCache=null;
             if(method==='inspect')value=inspect(p);
@@ -574,7 +578,7 @@ var KG23 = (function () {
             else error('Lệnh không hợp lệ.');
             var executed=new Date().getTime(),encoded=JSON.stringify({ok:true,value:value}),finished=new Date().getTime();
             // Include decoding and serialization, which the per-cue timers exclude.
-            return '{"profile":'+JSON.stringify({parseMs:parsed-began,methodMs:executed-parsed,serializeMs:finished-executed,hostMs:finished-began})+','+encoded.substring(1);
+            return '{"profile":'+JSON.stringify({payloadChars:payload?String(payload).length:0,decodeMs:decodedAt-began,jsonMs:parsed-decodedAt,parseMs:parsed-began,methodMs:executed-parsed,serializeMs:finished-executed,hostMs:finished-began})+','+encoded.substring(1);
         }catch(e){return JSON.stringify({ok:false,error:String(e.message||e)});}
         finally{liveCall=null;}
     }};

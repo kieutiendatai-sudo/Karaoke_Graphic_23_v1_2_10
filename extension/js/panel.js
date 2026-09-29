@@ -19,12 +19,13 @@
          var wall=performance.now()-started,p=r.profile,gap=Math.max(0,wall-p.hostMs);
          rpcMetrics.push({method:method,payloadChars:payload.length,wallMs:wall,host:p,stats:r.value&&r.value.stats||null,outsideHostMs:gap,visibilityStart:visibility,visibilityEnd:document.visibilityState||'unknown'});
          if(rpcMetrics.length>1000)rpcMetrics.shift();
-         log('Đo '+method+': tổng '+elapsed(wall)+'; host '+elapsed(p.hostMs)+' (giải mã '+elapsed(p.parseMs)+', xử lý '+elapsed(p.methodMs)+', đóng gói '+elapsed(p.serializeMs)+'); ngoài host ≈ '+elapsed(gap)+'; panel '+visibility+' → '+(document.visibilityState||'unknown')+'.');
+         log('Đo '+method+': tổng '+elapsed(wall)+'; host '+elapsed(p.hostMs)+' (payload '+(p.payloadChars||0)+' ký tự; giải mã '+elapsed(p.parseMs)+' = decodeURI '+elapsed(p.decodeMs||0)+' + JSON '+elapsed(p.jsonMs||0)+', xử lý '+elapsed(p.methodMs)+', đóng gói '+elapsed(p.serializeMs)+'); ngoài host ≈ '+elapsed(gap)+'; panel '+visibility+' → '+(document.visibilityState||'unknown')+'.');
        }
        resolve(r.value);
      }catch(e){reject(new Error(raw==='EvalScript error.'?'Premiere không thực thi được lệnh '+method+'. Với lệnh quét, thử lại khi Premiere hết bận. Với lệnh ghi, quét lại để kiểm tra kết quả trước khi chạy tiếp.':e.message));}
    });
  });}
+ function rpcSummary(){var out={};rpcMetrics.forEach(function(m){var o=out[m.method]||(out[m.method]={calls:0,wallMs:0,hostMs:0,payloadChars:0,decodeMs:0,jsonMs:0,parseMs:0,methodMs:0,serializeMs:0,outsideHostMs:0,stats:{}});o.calls++;o.wallMs+=m.wallMs;o.hostMs+=m.host.hostMs;o.payloadChars+=m.payloadChars;o.decodeMs+=m.host.decodeMs||0;o.jsonMs+=m.host.jsonMs||0;o.parseMs+=m.host.parseMs;o.methodMs+=m.host.methodMs;o.serializeMs+=m.host.serializeMs;o.outsideHostMs+=m.outsideHostMs;if(m.stats)Object.keys(m.stats).forEach(function(k){if(typeof m.stats[k]==='number')o.stats[k]=(o.stats[k]||0)+m.stats[k];});});return out;}
  function yieldToPanel(){return new Promise(function(resolve){
    if(typeof MessageChannel==='undefined'){setTimeout(resolve,0);return;}
    var channel=new MessageChannel();
@@ -135,7 +136,7 @@
      if(canResume){plans=session.plans.slice(session.position);log('Tiếp tục cache: '+plans.length+' cue còn lại; không tính hoặc gửi lại toàn bộ kế hoạch.');}
      else{plans=await buildPlans(targets);runSession=null;}
      $('progress').max=plans.length;$('progress').value=0;
-     var nextSize=batchSize,cost=null,writeStarted=performance.now(),stats={preflightMs:0,writeMs:0,verifyMs:0,keyframes:0,refreshMs:0,staticLayers:0,skippedWrites:0};
+     var nextSize=batchSize,cost=null,writeStarted=performance.now(),stats={preflightMs:0,cropMs:0,keyframeMs:0,writeMs:0,verifyMs:0,keyframes:0,refreshMs:0,staticLayers:0,skippedWrites:0,cueMs:0,setupMs:0};
      for(var i=0;i<plans.length;){if(stop)break;var roundStarted=performance.now(),group=plans.slice(i,i+nextSize),result;
        if(!runSession){
          var request=batchRequest(plans);request.count=nextSize;
@@ -158,7 +159,7 @@
        if(i<plans.length){var yieldStarted=performance.now();await yieldToPanel();var yieldMs=performance.now()-yieldStarted;if(yieldMs>=1000)log('Chờ chuyển lượt: '+elapsed(yieldMs)+'.');}
      }
      var writeSeconds=(performance.now()-writeStarted)/1000;
-     log('Áp dụng '+stats.keyframes+' keyframe trong '+C.duration(writeSeconds)+' · '+(done/Math.max(0.001,writeSeconds)).toFixed(1)+' cue/giây. Host các lượt ghi: kiểm tra '+elapsed(stats.preflightMs)+', ghi '+elapsed(stats.writeMs)+', đọc lại '+elapsed(stats.verifyMs)+'.');
+     log('Áp dụng '+stats.keyframes+' keyframe trong '+C.duration(writeSeconds)+' · '+(done/Math.max(0.001,writeSeconds)).toFixed(1)+' cue/giây. Host các lượt ghi: kiểm tra '+elapsed(stats.preflightMs)+' (trong đó tìm Crop '+elapsed(stats.cropMs)+'), ghi '+elapsed(stats.writeMs)+' (trong đó keyframe '+elapsed(stats.keyframeMs)+'), cue '+elapsed(stats.cueMs)+', đọc lại '+elapsed(stats.verifyMs)+'.');
      log((stop?'Đã dừng. ':'Hoàn tất. ')+done+'/'+plans.length+' cue · '+elapsed(performance.now()-started)+'. Xem kết quả trong Program Monitor.');
    }catch(e){runSession=null;throw e;}finally{setBusy(false);refreshList();}
  }
@@ -190,7 +191,7 @@
  });
  action('exportLog',function(){
    var raw={},cfg=null,settingsError='';fields.forEach(function(id){raw[id]=$(id).value;});try{cfg=settings();}catch(e){settingsError=e.message;}
-   var content=JSON.stringify({version:'1.2.10',mode:'single-line',settings:cfg,rawSettings:raw,settingsError:settingsError,batchSize:raw.batchSize,running:busy,progress:{applied:Number($('progress').value),total:Number($('progress').max)},timeline:scanData?{project:scanData.project,sequence:scanData.sequence,fps:scanData.fps,width:scanData.width,height:scanData.height,videoDisplayFormat:scanData.videoDisplayFormat,zeroSeconds:scanData.zeroSeconds,clipCount:scanData.clips.length,matched:rows.length}:null,rpcMetrics:rpcMetrics,scanIssues:scanIssues.map(function(issue){return Object.assign({},issue,{startTimecode:timelineTime(issue.clip.start),endTimecode:timelineTime(issue.clip.end)});}),layoutIssues:layoutIssues.map(function(issue){return Object.assign({},issue,{startTimecode:timelineTime(issue.start)});}),log:logs},null,2);
+   var content=JSON.stringify({version:'1.2.10',mode:'single-line',settings:cfg,rawSettings:raw,settingsError:settingsError,batchSize:raw.batchSize,running:busy,progress:{applied:Number($('progress').value),total:Number($('progress').max)},timeline:scanData?{project:scanData.project,sequence:scanData.sequence,fps:scanData.fps,width:scanData.width,height:scanData.height,videoDisplayFormat:scanData.videoDisplayFormat,zeroSeconds:scanData.zeroSeconds,clipCount:scanData.clips.length,matched:rows.length}:null,rpcSummary:rpcSummary(),rpcMetrics:rpcMetrics,scanIssues:scanIssues.map(function(issue){return Object.assign({},issue,{startTimecode:timelineTime(issue.clip.start),endTimecode:timelineTime(issue.clip.end)});}),layoutIssues:layoutIssues.map(function(issue){return Object.assign({},issue,{startTimecode:timelineTime(issue.start)});}),log:logs},null,2);
    var fs=window.cep&&window.cep.fs;
    if(fs&&fs.showSaveDialogEx&&fs.writeFile){
      var result=fs.showSaveDialogEx('Lưu nhật ký Karaoke Graphic 23','',['json'],'Karaoke_Graphic_23_log.json');
