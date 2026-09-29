@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const {fixture,compact}=require('./test-batch-host');
 function test(name,fn){fn();console.log('PASS '+name);}
 const N=50;
-function shaped(extraComponents){
+function shaped(extraComponents,matchName){
  const f=fixture(N,{json2:true}),counts={};
  const bump=k=>{counts[k]=(counts[k]||0)+1;};
  function wrap(o,parent){
@@ -20,7 +20,7 @@ function shaped(extraComponents){
  }
  const zoomFeather=(name,value)=>({displayName:name,value,isTimeVarying:()=>false,getValue:()=>value});
  for(const c of f.color){
-  const crop=c.components[0];crop.properties.push(zoomFeather('Zoom',false),zoomFeather('Edge Feather',0));crop.properties.numItems=crop.properties.length;
+  const crop=c.components[0];if(matchName)crop.matchName=matchName;crop.properties.push(zoomFeather('Zoom',false),zoomFeather('Edge Feather',0));crop.properties.numItems=crop.properties.length;
   for(let i=0;i<extraComponents;i++)c.components.push({displayName:'Effect'+i,matchName:'ADBE Effect'+i,properties:Object.assign([],{numItems:0})});
   c.components.numItems=c.components.length;
  }
@@ -168,4 +168,65 @@ test('full scan and cache learning use the same predicate; validation still appl
  const c=runWith(f=>{setMatch('AE.ADBE AECrop')(f);const p=crop(f,1)[0].properties;p.push({displayName:'Zoom',isTimeVarying:()=>false,getValue:()=>false});p.numItems=5;});
  assert.equal(c.r.value.error,'');assert.equal(c.r.value.stats.cropCachePropertyCountMismatch,2);
  for(let i=0;i<4;i++)assert.equal(c.f.right(i).keys.length,c.f.plans[i].items[0].keys.length);
+});
+
+// ---- native Crop fast property path ("AE.ADBE AECrop")
+const NATIVE='AE.ADBE AECrop';
+const propsOf=(f,i)=>crop(f,i).find(c=>/Crop$/.test(c.matchName)||c.displayName==='Crop').properties;
+const keyCount=(f,i)=>propsOf(f,i).find(p=>p.displayName==='Right').keys.length;
+test('native AE.ADBE AECrop: first cue maps names, every later cue reuses the learned indexes without reading names',()=>{
+ const a=shaped(4,NATIVE),t=k=>a.counts[k]||0;
+ assert.equal(a.f.color.length,N);
+ assert.equal(t('displayName'),8);                    // first cue only: 4 other components + Left/Top/Right/Bottom (was 4N+4)
+ assert.equal(t('properties.numItems'),N);            // structural check still runs on every cue
+ assert.equal(t('components.numItems'),N);
+ assert.equal(t('matchName'),5+(N-1));                // structural check still runs on every cue
+ const r=runWith(setMatch(NATIVE),50),s=r.r.value.stats;
+ assert.equal(r.r.value.error,'');assert.equal(r.r.value.applied,50);
+ assert.equal(s.cropFastPropertyHits,49);assert.equal(s.cropFullPropertyValidations,1);assert.equal(s.cropFastPropertyFallbacks,0);
+ assert.equal(s.cropCacheHits,49);assert.equal(s.cropFullScans,1);assert.equal(s.cropCacheLearned,1);
+ for(let i=0;i<50;i++)assert.equal(keyCount(r.f,i),r.f.plans[i].items[0].keys.length);
+});
+test('legacy or non-native Crop names never use the fast property path',()=>{
+ for(const name of ['AE.ADBE Crop',' AE.ADBE AECrop','AE.ADBE AECrop ']){
+  const s=runWith(setMatch(name),10).r.value.stats;
+  assert.equal(s.cropFastPropertyHits,0,name);assert.equal(s.cropFullPropertyValidations,10,name); // 1 scan + 9 hits that reread the names
+  assert.equal(s.cropCacheHits,9,name);
+ }
+ // displayName-only Crop: never learned, so never fast
+ const d=runWith(f=>{for(let i=0;i<10;i++){const c=crop(f,i)[0];c.matchName='ADBE Something';c.displayName='Crop';}},10).r.value.stats;
+ assert.equal(d.cropCacheLearned,0);assert.equal(d.cropFastPropertyHits,0);assert.equal(d.cropCacheHits,0);assert.equal(d.cropFullScans,10);
+});
+function nativeRun(mutate,n=10){return runWith(f=>{setMatch(NATIVE)(f);mutate(f);},n);}
+test('native fast path: property-count change invalidates, remaps names and relearns',()=>{
+ const {f,r}=nativeRun(f=>{ // cue 4: 6 properties in another order; cues 5..9 keep that structure
+  for(let i=4;i<10;i++){const p=propsOf(f,i);p.push({displayName:'Zoom',isTimeVarying:()=>false,getValue:()=>false});p.numItems=5;const l=p[0];p[0]=p[2];p[2]=l;}
+ });
+ const s=r.value.stats;assert.equal(r.value.error,'');assert.equal(r.value.applied,10);
+ assert.equal(s.cropCachePropertyCountMismatch,1);assert.equal(s.cropFastPropertyFallbacks,1);
+ assert.equal(s.cropFullScans,2);assert.equal(s.cropFullPropertyValidations,2);assert.equal(s.cropFastPropertyHits,8); // 3 before + 5 after the relearn
+ for(let i=0;i<10;i++)assert.equal(keyCount(f,i),f.plans[i].items[0].keys.length,'cue '+i); // always written to the property named Right
+});
+test('native fast path: component matchName change falls back to the full scan',()=>{
+ const other=()=>({displayName:'X',matchName:'ADBE X',properties:Object.assign([],{numItems:0})});
+ const {f,r}=nativeRun(f=>{for(let i=0;i<10;i++){const c=crop(f,i);c.push(other());c.numItems=2;}const c=crop(f,5),first=c[0];c[0]=c[1];c[1]=first;});
+ const s=r.value.stats;assert.equal(r.value.error,'');assert.equal(s.cropCacheMatchNameMismatch,2);assert.equal(s.cropFastPropertyFallbacks,2);
+ for(let i=0;i<10;i++)assert.equal(keyCount(f,i),f.plans[i].items[0].keys.length,'cue '+i);
+});
+test('native fast path: component-count change falls back and a missing Crop still stops the run',()=>{
+ const {f,r}=nativeRun(f=>{const c=crop(f,3);c.push({displayName:'X',matchName:'ADBE X',properties:Object.assign([],{numItems:0})});c.numItems=2;});
+ const s=r.value.stats;assert.equal(r.value.error,'');assert.equal(s.cropCacheComponentCountMismatch,2);assert.equal(s.cropFastPropertyFallbacks,2);
+ for(let i=0;i<10;i++)assert.equal(keyCount(f,i),f.plans[i].items[0].keys.length,'cue '+i);
+ const gone=nativeRun(f=>{const c=crop(f,4);c.length=0;c.numItems=0;});
+ assert.equal(gone.r.value.applied,4);assert.match(gone.r.value.error,/đúng 1 hiệu ứng Crop/);assert.equal(gone.r.value.stats.cropFastPropertyFallbacks,1);
+});
+test('a cue that changes the structure invalidates the cache before the full scan runs',()=>{
+ const {r}=nativeRun(f=>{const c=crop(f,2);c.push({displayName:'X',matchName:'ADBE X',properties:Object.assign([],{numItems:0})});c.numItems=2;c.push(Object.assign({},c[0]));c.numItems=3;},4);
+ assert.equal(r.value.applied,2);assert.match(r.value.error,/đúng 1 hiệu ứng Crop/);
+ assert.equal(r.value.stats.cropCacheComponentCountMismatch,1);assert.equal(r.value.stats.cropFastPropertyFallbacks,1);
+});
+test('KNOWN LIMITATION: with equal component/property counts and matchName, reordered property names are trusted on the native fast path',()=>{
+ // Documents the accepted risk of trusting learned indexes. The native Crop has a fixed layout, so this is not expected in Premiere.
+ const {f,r}=nativeRun(f=>{const p=propsOf(f,3),l=p[0];p[0]=p[2];p[2]=l;});
+ assert.equal(r.value.error,'');assert.equal(r.value.stats.cropCachePropertyNameMismatch,0);assert.equal(r.value.stats.cropFastPropertyHits,9);
 });

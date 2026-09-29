@@ -143,10 +143,15 @@ var KG23 = (function () {
     // Write path only. Plain data learned from a fully scanned clip (cropShape) is re-checked against
     // this clip; any mismatch returns null and the caller runs the full scan below.
     // Aggregated diagnostics only (per host call); at most one value sample per call.
-    var CROP_CACHE_COUNTERS=['cropCacheNoShape','cropCacheComponentCountMismatch','cropCacheComponentMissing','cropCacheMatchNameMismatch','cropCachePropertyCountMismatch','cropCachePropertyMissing','cropCachePropertyNameMismatch','cropCacheOtherFailure','cropCacheLearned','cropCacheNotLearned'];
+    var CROP_CACHE_COUNTERS=['cropCacheNoShape','cropCacheComponentCountMismatch','cropCacheComponentMissing','cropCacheMatchNameMismatch','cropCachePropertyCountMismatch','cropCachePropertyMissing','cropCachePropertyNameMismatch','cropCacheOtherFailure','cropCacheLearned','cropCacheNotLearned','cropFastPropertyHits','cropFullPropertyValidations','cropFastPropertyFallbacks'];
     function cropCount(name) { var c=liveCall.cropStats||(liveCall.cropStats={}); c[name]=(c[name]||0)+1; }
+    // Only the exact native Premiere Pro 23 Crop may reuse learned property indexes without rereading names.
+    var NATIVE_CROP_FAST_MATCH_NAME='AE.ADBE AECrop';
     function cropMiss(name,expected,actual) {
         cropCount(name);
+        // Any failed structural check invalidates the learned shape; the caller runs the full scan and relearns.
+        if(cropShape && cropShape.fastProperties && name!=='cropCacheNoShape') cropCount('cropFastPropertyFallbacks');
+        cropShape=null;
         if(!liveCall.cropSample && name!=='cropCacheNoShape') liveCall.cropSample=name+': expected '+typeof expected+' '+String(expected)+', actual '+typeof actual+' '+String(actual);
         return null;
     }
@@ -166,6 +171,19 @@ var KG23 = (function () {
             var propertyTotal=count(props);pf.cropPropertiesUs+=lap();
             if(propertyTotal!==shape.properties) return cropMiss('cropCachePropertyCountMismatch',shape.properties,propertyTotal);
             var mapped={};
+            if(shape.fastProperties) {
+                // Native Crop, component count, matchName and property count all match the learned structure:
+                // reuse the learned Left/Top/Right/Bottom indexes without rereading the four displayName values.
+                for(var f=0;f<CROP_NAMES.length;f++) {
+                    var fastProp=props[shape.indices[CROP_NAMES[f]]];
+                    if(fastProp===undefined || fastProp===null) return cropMiss('cropCachePropertyMissing',shape.indices[CROP_NAMES[f]],fastProp);
+                    mapped[CROP_NAMES[f]]=fastProp;
+                }
+                pf.cropPropertyNamesUs+=lap();
+                cropCount('cropFastPropertyHits');
+                return {index:shape.index,component:comp,params:mapped,indices:shape.indices};
+            }
+            cropCount('cropFullPropertyValidations');
             for(var i=0;i<CROP_NAMES.length;i++) {
                 var p=props[shape.indices[CROP_NAMES[i]]];
                 if(p===undefined || p===null) return cropMiss('cropCachePropertyMissing',shape.indices[CROP_NAMES[i]],p);
@@ -204,8 +222,9 @@ var KG23 = (function () {
         obj.params=mapped; obj.indices=idx;
         // Learn only from the built-in Crop matched by matchName, never from a displayName-only match.
         if(quick) {
+            cropCount('cropFullPropertyValidations'); // this scan mapped Left/Top/Right/Bottom by reading their names
             if(isCropMatchName(obj.matchName)) {
-                cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx};
+                cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx,fastProperties:obj.matchName===NATIVE_CROP_FAST_MATCH_NAME};
                 cropCount('cropCacheLearned');
                 if(!liveCall.cropLearnSample) liveCall.cropLearnSample='components '+typeof componentCount+' '+componentCount+', index '+obj.index+', matchName '+obj.matchName+', properties '+typeof propertyCount+' '+propertyCount+', indices '+JSON.stringify(idx);
             } else {
