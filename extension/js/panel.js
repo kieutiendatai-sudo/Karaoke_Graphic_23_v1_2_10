@@ -19,7 +19,7 @@
          var wall=performance.now()-started,p=r.profile,gap=Math.max(0,wall-p.hostMs);
          rpcMetrics.push({method:method,payloadChars:payload.length,wallMs:wall,host:p,stats:r.value&&r.value.stats||null,outsideHostMs:gap,visibilityStart:visibility,visibilityEnd:document.visibilityState||'unknown'});
          if(rpcMetrics.length>1000)rpcMetrics.shift();
-         log('Đo '+method+': tổng '+elapsed(wall)+'; host '+elapsed(p.hostMs)+' (payload '+(p.payloadChars||0)+' ký tự; giải mã '+elapsed(p.parseMs)+' = decodeURI '+elapsed(p.decodeMs||0)+' + JSON '+elapsed(p.jsonMs||0)+', xử lý '+elapsed(p.methodMs)+', đóng gói '+elapsed(p.serializeMs)+'); ngoài host ≈ '+elapsed(gap)+'; panel '+visibility+' → '+(document.visibilityState||'unknown')+'.');
+         log('Đo '+method+': tổng '+elapsed(wall)+'; host '+elapsed(p.hostMs)+' (payload '+(p.payloadChars||0)+' ký tự; giải mã ['+(p.jsonMode||'?')+'] '+elapsed(p.parseMs)+' = decodeURI '+elapsed(p.decodeMs||0)+' + JSON '+elapsed(p.jsonMs||0)+', xử lý '+elapsed(p.methodMs)+', đóng gói '+elapsed(p.serializeMs)+'); ngoài host ≈ '+elapsed(gap)+'; panel '+visibility+' → '+(document.visibilityState||'unknown')+'.');
        }
        resolve(r.value);
      }catch(e){reject(new Error(raw==='EvalScript error.'?'Premiere không thực thi được lệnh '+method+'. Với lệnh quét, thử lại khi Premiere hết bận. Với lệnh ghi, quét lại để kiểm tra kết quả trước khi chạy tiếp.':e.message));}
