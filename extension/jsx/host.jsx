@@ -94,6 +94,14 @@ var KG23 = (function () {
         for(var i=history.length-1;i>=0;i--) if(history[i]===rec || history[i].key===rec.key) history.splice(i,1);
     }
     var CROP_NAMES=['Left','Top','Right','Bottom'];
+    // Single predicate for "this matchName is a Crop effect", used by the full scan and by cache learning.
+    // Premiere Pro 23 reports the native Crop as "AE.ADBE AECrop", which the older pattern (Crop after
+    // a space or dot) does not match. Matching is exact after trimming, so similar names do not qualify.
+    var NATIVE_CROP_MATCH_NAMES={'AE.ADBE AECrop':true};
+    function isCropMatchName(name) {
+        var text=String(name);
+        return NATIVE_CROP_MATCH_NAMES.hasOwnProperty(text.replace(/^\s+|\s+$/g,'')) || /(^|[ .])Crop$/i.test(text);
+    }
     // Write path only. Plain data learned from a fully scanned clip (cropShape) is re-checked against
     // this clip; any mismatch returns null and the caller runs the full scan below.
     // Aggregated diagnostics only (per host call); at most one value sample per call.
@@ -139,7 +147,7 @@ var KG23 = (function () {
         var components=c.components,componentCount=components.numItems;
         for(i=0;i<componentCount;i++) {
             comp=components[i];matchName=String(comp.matchName);
-            if(/(^|[ .])Crop$/i.test(matchName) || String(comp.displayName)==='Crop') found.push({index:i,component:comp,matchName:matchName});
+            if(isCropMatchName(matchName) || String(comp.displayName)==='Crop') found.push({index:i,component:comp,matchName:matchName});
         }
         if(found.length!==1) error('“'+c.name+'”: cần đúng 1 hiệu ứng Crop. Thêm Crop vào bản sao chữ màu rồi quét lại.');
         var obj=found[0], props=obj.component.properties, names=['Left','Top','Right','Bottom'], mapped={},idx={};
@@ -157,7 +165,7 @@ var KG23 = (function () {
         obj.params=mapped; obj.indices=idx;
         // Learn only from the built-in Crop matched by matchName, never from a displayName-only match.
         if(quick) {
-            if(/(^|[ .])Crop$/i.test(obj.matchName)) {
+            if(isCropMatchName(obj.matchName)) {
                 cropShape={components:componentCount,index:obj.index,matchName:obj.matchName,properties:propertyCount,indices:idx};
                 cropCount('cropCacheLearned');
                 if(!liveCall.cropLearnSample) liveCall.cropLearnSample='components '+typeof componentCount+' '+componentCount+', index '+obj.index+', matchName '+obj.matchName+', properties '+typeof propertyCount+' '+propertyCount+', indices '+JSON.stringify(idx);

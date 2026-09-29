@@ -140,3 +140,32 @@ test('Premiere-specific value shapes are visible in the counters (Number object 
  assert.equal(s.cropCacheLearned,0);assert.equal(s.cropCacheNotLearned,4);assert.equal(s.cropCacheNoShape,4);assert.equal(s.cropCacheHits,0);
  assert.match(s.cropLearnSample,/^not learned: matchName ADBE Something/);
 });
+// Real Premiere Pro 23 reports the native Crop as "AE.ADBE AECrop".
+const setMatch=name=>f=>{for(let i=0;i<f.color.length;i++)crop(f,i)[0].matchName=name;};
+test('native Premiere 23 matchName "AE.ADBE AECrop" is learned and every later cue hits the cache',()=>{
+ const {r}=runWith(setMatch('AE.ADBE AECrop'),50),s=r.value.stats;
+ assert.equal(r.value.error,'');assert.equal(r.value.applied,50);
+ assert.equal(s.cropCacheLearned,1);assert.equal(s.cropCacheNotLearned,0);
+ assert.equal(s.cropCacheNoShape,1);assert.equal(s.cropFullScans,1);assert.equal(s.cropCacheHits,49);
+ assert.equal(s.cropSample,'');assert.match(s.cropLearnSample,/matchName AE\.ADBE AECrop,/);
+});
+test('surrounding whitespace on the native matchName does not stop learning, and equality is exact',()=>{
+ let s=runWith(setMatch(' AE.ADBE AECrop\n'),10).r.value.stats;
+ assert.equal(s.cropCacheLearned,1);assert.equal(s.cropCacheHits,9);
+ for(const other of ['AE.ADBE AECropper','AE.ADBE AECrop2','AE.ADBE AEcrop ','ADBE AECrop']){ // similar names are not native
+  s=runWith(setMatch(other),4).r.value.stats;
+  assert.equal(s.cropCacheLearned,0,other);assert.equal(s.cropCacheNotLearned,4,other);assert.equal(s.cropCacheHits,0,other);
+ }
+});
+test('full scan and cache learning use the same predicate; validation still applies with the native name',()=>{
+ // displayName no longer required: the full scan also recognises the native matchName
+ const a=runWith(f=>{for(let i=0;i<4;i++){const c=crop(f,i)[0];c.matchName='AE.ADBE AECrop';c.displayName='Recadrer';}},4);
+ assert.equal(a.r.value.error,'');assert.equal(a.r.value.stats.cropCacheLearned,1);
+ // two native Crops on one clip (different component count) still stop the run
+ const b=runWith(f=>{setMatch('AE.ADBE AECrop')(f);const c=crop(f,2);c.push(Object.assign({},c[0]));c.numItems=2;});
+ assert.equal(b.r.value.applied,2);assert.match(b.r.value.error,/đúng 1 hiệu ứng Crop/);
+ // a structure change still falls back to the full scan and relearns
+ const c=runWith(f=>{setMatch('AE.ADBE AECrop')(f);const p=crop(f,1)[0].properties;p.push({displayName:'Zoom',isTimeVarying:()=>false,getValue:()=>false});p.numItems=5;});
+ assert.equal(c.r.value.error,'');assert.equal(c.r.value.stats.cropCachePropertyCountMismatch,2);
+ for(let i=0;i<4;i++)assert.equal(c.f.right(i).keys.length,c.f.plans[i].items[0].keys.length);
+});
