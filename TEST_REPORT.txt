@@ -1,0 +1,45 @@
+Karaoke Graphic 23 v1.2.10 FAST - Ghép nhanh rồi áp dụng
+
+63 TEST ĐẠT
+- 9 core: timing/frame, một dòng, ghép đúng đầu/cuối và geometry.
+- 1 cấu trúc: phiên bản, panel một dòng và timecode.
+- 29 host: lô 5.000 cue đúng frame/value/interpolation; rollback, budget,
+  cache/cursor; ghép 2.429 cue không mở Crop hoặc gọi kiểm tra tốc độ.
+  Dùng lại chỉ mục ID, vẫn nhận ra clip bị thay/xê dịch và track khóa.
+  Thiếu/trùng Crop dừng tại cue khi ghi; không ghi vào clip sau cue lỗi.
+  Phạm vi selected dùng đúng slot; full preparation cũ vẫn tương thích.
+  Hoàn tác giữ chỉnh sửa sau khi chạy, lịch sử được bỏ khi ID bị tái dùng
+  với các mốc thời gian khác.
+- 24 panel: nạp SRT xong không gửi host RPC hoặc khóa nút Áp dụng;
+  một lần bấm tự ghép rồi ghi 2.429 cue đúng frame/giá trị/nội suy.
+  Ghép thất bại hoặc Dừng trong lúc ghép không gửi lệnh ghi.
+  Chọn một cue thử vẫn yêu cầu có danh sách và lựa chọn rõ ràng.
+  Log JSON có số đo inspect và stats khởi tạo/ghi từng lượt.
+  Các test cache/dừng/tiếp tục/xuất log UTF-8 cũ vẫn đạt.
+
+BENCHMARK 2.429 CUE (MÔ PHỎNG API)
+- Cả v1.2.9 và v1.2.10 tạo cùng 9.716 keyframe trong fixture.
+- Riêng ghép: mở collection Crop 2.429 -> 0; isTimeVarying 9.716 -> 0;
+  getSpeed và isSpeedReversed mỗi loại 2.429 -> 0.
+- Ghép + ghi: đọc start clip màu 7.287 -> 4.858, bỏ một vòng lập chỉ mục.
+- Số host RPC vẫn 2: ghép + ghi. Gộp nút bấm không đồng nghĩa gộp hai RPC.
+- BENCHMARK.json đếm một số API/getter, không phải thời gian Premiere.
+
+ĐỌC LOG 6
+- Sau Đã nạp SRT đến Ghép được: khoảng 21s và 16s.
+  Log cũ không đo inspect nên khoảng này có thể gồm thời gian người dùng.
+- Tính bố cục/kế hoạch chỉ 0,089s và 0,074s.
+- beginRun 35,926s và 36,021s đã gồm một lượt ghi khoảng 30s;
+  parse riêng 4,526s và 5,082s, không phải toàn bộ thời gian là khởi tạo.
+- Bản mới đo đọc SRT, inspect, ghép SRT và dựng danh sách riêng.
+
+GIỚI HẠN
+- Chưa đo v1.2.10 trực tiếp trong Premiere; không cam kết số giây tăng tốc.
+- Ghép nhanh không kiểm tra Crop/tốc độ/Zoom/Feather hay trạng thái keyframe.
+  Graphic cần tốc độ 100%, Crop Zoom OFF và Feather = 0.
+- Kiểm tra đúng một Crop và animation có sẵn vẫn chạy trước mỗi cue ghi.
+- Ghép nhanh dùng lịch sử để đánh dấu cue đã chạy, không đọc lại Crop của
+  các cue đó. Hoàn tác hoặc Làm sạch Crop là thao tác đọc trạng thái riêng.
+- SRT và Graphic phải khớp đầu/cuối. Không thể bỏ bước đọc mốc clip để biết
+  keyframe phải ghi vào đâu. Chỉ mục lưu dữ liệu thuần; ID/thời gian đọc sống.
+- Dừng chỉ có hiệu lực sau khi host RPC hiện tại trả về.

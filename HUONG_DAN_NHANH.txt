@@ -1,0 +1,41 @@
+KARAOKE GRAPHIC 23 v1.2.10 FAST - CHỈ 1 DÒNG
+
+CÀI ĐẶT
+1. Đóng hoàn toàn Premiere.
+2. Giải nén ZIP vào thư mục trống. INSTALL.bat nằm ngay ở cấp đầu.
+3. Chạy INSTALL.bat, mở Premiere 23 > Window > Extensions > Karaoke Graphic 23.
+
+THAY ĐỔI TỐC ĐỘ
+- Bỏ đối chiếu lớp trắng, kiểm tra lại tốc độ và khả năng keyframe khi ghi.
+- Không đọc lại từng keyframe sau ghi; vẫn kiểm tra mã lỗi ghi.
+- Giữ đúng frame, giá trị Crop và nội suy, một lớp màu cho mỗi cue.
+- Time dùng lại trong lượt; làm mới giao diện một lần mỗi lượt.
+- Kế hoạch gửi một lần; tiếp tục chỉ gửi token/vị trí trong cache RAM.
+- Mặc định 2.500 cue/lượt, tối đa 5.000. Số cue đã lưu vẫn được giữ:
+  nếu ô còn 500/800, đổi thành 2.500. Tự chuyển lượt sau khoảng 30 giây.
+- Dừng có hiệu lực giữa lượt. Áp dụng lại tiếp tục phần chưa ghi.
+- Ô xác nhận xem thử và nút kiểm tra bố cục đều tùy chọn.
+- Ghép nhanh chỉ đọc thông tin clip, không mở Crop. Dùng lại chỉ mục ID.
+- Sau khi nạp SRT có thể bấm Áp dụng toàn bộ; panel tự ghép và ghi.
+
+CHẠY
+1. Chuẩn bị chữ trắng/màu trùng font/cỡ chữ/vị trí/thời gian.
+2. Thêm đúng một Crop vào clip màu, Zoom OFF, Edge Feather = 0.
+3. Nạp cùng SRT đã dùng tạo Graphic, chọn track màu. Không cần Quét riêng.
+4. Nhập font/cỡ chữ/tracking/điểm neo/Width Factor, đặt 2.500 cue/lượt.
+5. Bấm Áp dụng các câu còn lại: tự ghép nhanh rồi ghi. Muốn chọn cue thử,
+   bấm Ghép nhanh trước. Giữ nguyên timeline và Crop trong lúc chạy.
+6. Đổi thông số sau khi ghi: Hoàn tác hoặc Làm sạch Crop trước khi chạy lại.
+
+VIDEO TIẾP THEO
+- Thay Graphics sau render: bấm Bắt đầu video mới, nạp SRT rồi Áp dụng.
+- Nút quên lịch sử cũ, không sửa timeline/Crop. Cache mất khi đóng panel.
+
+LOG VÀ KIỂM CHỨNG
+- Xuất log từ panel bằng UTF-8, có thể xuất trong lúc chạy.
+- Mốc cue: giờ:phút:giây:frame. Thời lượng: phút:giây.mili giây.
+- Chi tiết đo vẫn nằm trong JSON; nhật ký từng lượt đã được rút gọn.
+- 63 test mô phỏng đạt. BENCHMARK.json đếm API, không đo tốc độ Premiere.
+- Ghép nhanh chỉ đọc clip; Hoàn tác đọc đối chiếu Crop khi được yêu cầu.
+- Chuẩn bị Graphic tốc độ 100%, Crop Zoom OFF, Feather = 0; ghép nhanh
+  không kiểm tra các thông số đó. Thiếu Crop sẽ dừng tại cue tương ứng.
