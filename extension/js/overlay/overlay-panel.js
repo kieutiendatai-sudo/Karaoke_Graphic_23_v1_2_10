@@ -4,13 +4,13 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var hasNode = typeof require === 'function' && typeof process !== 'undefined';
-  var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null;
+  var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null, Files = null, lastMetaSrt = null;
   var logs = [], lastMeta = null, cancel = null, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
     textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadding: 12, anchorX: 50, yPercent: 85,
     canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
     insertTrack: 2, insertOffset: 0, insertIntoTimeline: true };
-  var FIELDS = Object.keys(DEFAULTS);
+  var FIELDS = Object.keys(DEFAULTS), COLORS = ['textColor', 'highlightColor', 'outlineColor', 'bgColor'];
 
   function extensionRoot() {
     var p = decodeURIComponent(window.__adobe_cep__.getSystemPath('extension')).replace(/^file:\/\//, '');
@@ -26,6 +26,12 @@
     FIELDS.forEach(function (k) {
       var el = $(k), v = saved[k] !== undefined ? saved[k] : DEFAULTS[k];
       if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+    });
+  }
+  function swatches() {
+    Array.prototype.forEach.call(document.querySelectorAll('.sw'), function (sw) {
+      var hex = Files ? Files.normalizeHex($(sw.getAttribute('data-for')).value) : null;
+      sw.style.background = hex || 'transparent'; sw.title = hex || 'Mã hex không hợp lệ';
     });
   }
   function read() {
@@ -84,36 +90,64 @@
       }).catch(function () { /* estimate only */ });
     } catch (e) { return Promise.resolve(); }
   }
+  function listSrts() {
+    var r = Files.expandSrtInputs(fs, path, $('srtPath').value);
+    r.errors.forEach(function (e) { log('Cảnh báo: ' + e); });
+    return r.files;
+  }
+  function refreshImportList() {
+    if (!Files) return;
+    var sel = $('importSrt'), keep = sel.value, files = Files.expandSrtInputs(fs, path, $('srtPath').value).files;
+    sel.innerHTML = '';
+    files.forEach(function (f) { var o = document.createElement('option'); o.value = f; o.textContent = path.basename(f); sel.appendChild(o); });
+    if (files.indexOf(keep) >= 0) sel.value = keep;
+  }
+  function outDirFor(s, srt) { return s.outputDir || path.dirname(srt); }
   function render(preview) {
-    var s = read();
-    var errors = [];
-    if (!s.srtPath) errors.push('Chưa chọn SRT.');
-    if (!s.outputDir) errors.push('Chưa chọn thư mục kết quả.');
+    var s = read(), errors = [], files = listSrts();
+    if (!files.length) errors.push('Chưa chọn SRT.');
     if (!s.fontFile) errors.push('Chưa chọn file font.');
     if (!(s.fontSize > 0)) errors.push('Cỡ chữ không hợp lệ.');
+    COLORS.forEach(function (k) { if (k !== 'bgColor' || s.bgEnabled) { if (!Files.normalizeHex(s[k])) errors.push('Mã màu không hợp lệ (' + k + '): nhập dạng #RRGGBB.'); else s[k] = Files.normalizeHex(s[k]); } });
     if (errors.length) throw new Error(errors.join(' '));
-    var ffmpeg = Job.resolveFfmpeg(s.ffmpegDir, extensionRoot());
-    var srtText = fs.readFileSync(s.srtPath, 'utf8');
+    if (preview) files = files.slice(0, 1);
+    var ffmpeg = Job.resolveFfmpeg(s.ffmpegDir, extensionRoot()), failed = [], done = 0;
+    if (files.length > 1) log('Render tuần tự ' + files.length + ' file SRT' + (s.outputDir ? ' vào ' + s.outputDir : ' (lưu cạnh từng file SRT)') + '.');
     return resolveFrame(s).then(function (frame) {
-      return warnWidths(s, srtText, frame).then(function () {
-        cancel = Job.makeCancelToken();
-        return Job.renderOverlay({ ffmpeg: ffmpeg, srtText: srtText, outputDir: s.outputDir, baseName: path.basename(s.srtPath).replace(/\.[^.]+$/, ''),
-          fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: cancel,
-          window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
-          style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
-            outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadding: s.bgPadding, anchorX: s.anchorX, yPercent: s.yPercent },
-          onLog: log, onProgress: function (p) { $('progress').value = p; } });
-      });
-    }).then(function (meta) {
-      lastMeta = meta;
-      log((meta.skipped ? 'Đã có sẵn: ' : preview ? 'Xem thử xong: ' : 'Render xong: ') + meta.output);
-      log(meta.canvas.w + 'x' + meta.canvas.h + ' · ' + meta.words + ' từ · bắt đầu ' + meta.startSeconds.toFixed(3) + ' s · dài ' + meta.durationSeconds.toFixed(2) + ' s');
+      function one(i) {
+        if (i >= files.length) return Promise.resolve();
+        var srt = files[i], tag = files.length > 1 ? '[' + (i + 1) + '/' + files.length + '] ' + path.basename(srt) + ': ' : '';
+        return Promise.resolve().then(function () {
+          var srtText = fs.readFileSync(srt, 'utf8');
+          return warnWidths(s, srtText, frame).then(function () {
+            cancel = Job.makeCancelToken();
+            return Job.renderOverlay({ ffmpeg: ffmpeg, srtText: srtText, outputDir: outDirFor(s, srt), baseName: path.basename(srt).replace(/\.[^.]+$/, ''),
+              fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: cancel,
+              window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
+              style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
+                outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadding: s.bgPadding, anchorX: s.anchorX, yPercent: s.yPercent },
+              onLog: function (t) { log(tag + t); }, onProgress: function (p) { $('progress').value = (i + p) / files.length; } });
+          });
+        }).then(function (meta) {
+          lastMeta = meta; lastMetaSrt = srt; done++;
+          log(tag + (meta.skipped ? 'Đã có sẵn: ' : preview ? 'Xem thử xong: ' : 'Render xong: ') + meta.output);
+          log(tag + meta.canvas.w + 'x' + meta.canvas.h + ' · ' + meta.words + ' từ · bắt đầu ' + meta.startSeconds.toFixed(3) + ' s · dài ' + meta.durationSeconds.toFixed(2) + ' s');
+        }, function (e) {
+          if (e && e.cancelled) throw e;
+          failed.push(path.basename(srt)); log(tag + 'LỖI: ' + (e && e.message || e));
+        }).then(function () { return one(i + 1); });
+      }
+      return one(0);
+    }).then(function () {
+      if (files.length > 1) log('Xong lô: ' + done + '/' + files.length + ' file' + (failed.length ? '; lỗi: ' + failed.join(', ') : '') + '.');
+      if (failed.length && !done) throw new Error('Tất cả file đều lỗi.');
     });
   }
   function importResult() {
-    var s = read(), meta = lastMeta;
-    if (!meta && s.srtPath && s.outputDir) {
-      var sidecar = path.join(s.outputDir, path.basename(s.srtPath).replace(/\.[^.]+$/, '') + '_karaoke.json');
+    var s = read(), meta = null, srt = $('importSrt').value;
+    if (srt && lastMeta && lastMetaSrt === srt) meta = lastMeta;
+    else if (srt) {
+      var sidecar = path.join(outDirFor(s, srt), path.basename(srt).replace(/\.[^.]+$/, '') + '_karaoke.json');
       if (fs.existsSync(sidecar)) meta = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
     }
     if (!meta) return Promise.reject(new Error('Chưa có kết quả. Bấm "Render overlay" trước.'));
@@ -134,6 +168,11 @@
     b.addEventListener('click', function () { pick(b.getAttribute('data-pick'), b.getAttribute('data-kind'), b.getAttribute('data-ext')); });
   });
   FIELDS.forEach(function (k) { $(k).addEventListener('change', save); });
+  COLORS.forEach(function (k) {
+    $(k).addEventListener('input', swatches);
+    $(k).addEventListener('change', function () { var h = Files && Files.normalizeHex($(k).value); if (h) $(k).value = h; swatches(); save(); });
+  });
+  $('srtPath').addEventListener('change', refreshImportList);
   load();
   if (hasNode) {
     try {
@@ -142,12 +181,14 @@
       Job = require(path.join(root, 'js', 'overlay', 'overlay-job.js'));
       Plan = require(path.join(root, 'js', 'overlay', 'overlay-plan.js'));
       Core = require(path.join(root, 'js', 'core.js'));
+      Files = require(path.join(root, 'js', 'overlay', 'overlay-files.js'));
       FontScan = require(path.join(root, 'js', 'overlay', 'font-scan.js'));
       FontInfo = require(path.join(root, 'js', 'overlay', 'font-info.js'));
     } catch (e) { hasNode = false; log('Không nạp được mô-đun: ' + e.message); }
   }
   $('env').className = 'notice' + (hasNode ? ' ok' : '');
   $('env').textContent = hasNode ? 'Node.js sẵn sàng: panel tự chạy FFmpeg.' : 'Node.js KHÔNG khả dụng trong panel này: không thể chạy FFmpeg. Kiểm tra manifest (--enable-nodejs --mixed-context).';
+  swatches(); refreshImportList();
   busy(false); $('stop').disabled = true;
   if (!hasNode) { busy(true); $('stop').disabled = true; return; }
   $('checkFfmpeg').addEventListener('click', guard(function () {
@@ -169,6 +210,20 @@
   }
   $('scanFonts').addEventListener('click', function () { try { scanSystemFonts(); } catch (e) { log('LỖI quét font: ' + e.message); } });
   $('systemFont').addEventListener('change', function () { if (this.value) { $('fontFile').value = this.value; save(); } });
+  function appendSrt(paths) {
+    var box = $('srtPath'), cur = box.value.trim();
+    box.value = (cur ? cur + '\n' : '') + paths.join('\n'); save(); refreshImportList();
+  }
+  $('addSrtFiles').addEventListener('click', function () {
+    var f = window.cep && window.cep.fs; if (!f) return;
+    var r = f.showOpenDialogEx(true, false, 'Chọn các file SRT', '', ['srt']);
+    if (r.err === 0 && r.data && r.data.length) appendSrt(r.data);
+  });
+  $('addSrtDir').addEventListener('click', function () {
+    var f = window.cep && window.cep.fs; if (!f) return;
+    var r = f.showOpenDialogEx(false, true, 'Chọn thư mục chứa SRT', '', []);
+    if (r.err === 0 && r.data && r.data.length) appendSrt(r.data);
+  });
   $('preview').addEventListener('click', guard(function () { return render(true); }));
   $('render').addEventListener('click', guard(function () { return render(false); }));
   $('import').addEventListener('click', guard(importResult));

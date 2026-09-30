@@ -8,3 +8,6 @@ button{background:#3b3b3b;color:#eee;border:1px solid #555;padding:6px;border-ra
 button:disabled{opacity:.5;cursor:default}progress{width:100%;margin:8px 0}
 .notice{background:#3a2f12;border:1px solid #6a5520;padding:6px;border-radius:3px;margin:6px 0;font-size:12px}.notice.ok{background:#173a22;border-color:#2b6a3d}
 pre{background:#161616;padding:6px;height:220px;overflow:auto;white-space:pre-wrap;font-size:11px}
+
+textarea{width:100%;box-sizing:border-box;background:#1a1a1a;color:#eee;border:1px solid #4a4a4a;padding:4px;border-radius:3px;font:inherit;resize:vertical}
+.hex{font-family:monospace;text-transform:uppercase}.sw{flex:0 0 30px;border:1px solid #4a4a4a;border-radius:3px;background:#000}
