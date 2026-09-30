@@ -181,3 +181,16 @@ test('progress reports rise to 1', async () => {
   await Job.renderOverlay(Object.assign({}, base, { outputDir: path.join(tmp, 'g'), fps: { num: 30, den: 1 }, onProgress: p => seen.push(p) }));
   assert.ok(seen.length >= 1 && seen[seen.length - 1] === 1 && seen.every(v => v >= 0 && v <= 1));
 });
+
+test('background box renders: opaque pixels appear around the text with the requested alpha and colour', async () => {
+  const opts = o => Object.assign({}, base, { outputDir: path.join(tmp, o.dir), baseName: 'b', fps: { num: 30, den: 1 },
+    window: { startSeconds: 0.6, lengthSeconds: 0.5 }, style: Object.assign({}, base.style, o.style) });
+  const off = decode((await Job.renderOverlay(opts({ dir: 'bgoff', style: { outline: 0 } }))).output).frame(4);
+  const on = decode((await Job.renderOverlay(opts({ dir: 'bgon', style: { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadding: 10 } }))).output).frame(4);
+  const cnt = f => { let n = 0; for (let i = 3; i < f.length; i += 4) if (f[i] > 0) n++; return n; };
+  assert.ok(cnt(on) > cnt(off) * 1.5, 'box adds no area: ' + cnt(on) + ' vs ' + cnt(off));
+  let n = 0, a = 0, blue = 0;
+  for (let i = 0; i < on.length; i += 4) if (on[i + 2] > 200 && on[i] < 40 && on[i + 3] > 0) { n++; a += on[i + 3]; blue++; }
+  assert.ok(n > 2000, 'blue box pixels: ' + n);
+  assert.ok(Math.abs(a / n - 127.5) < 12, 'box alpha mean ' + (a / n).toFixed(1) + ' expected ~128');
+});

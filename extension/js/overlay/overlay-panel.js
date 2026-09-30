@@ -7,7 +7,7 @@
   var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null;
   var logs = [], lastMeta = null, cancel = null, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
-    textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, anchorX: 50, yPercent: 85,
+    textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadding: 12, anchorX: 50, yPercent: 85,
     canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
     insertTrack: 2, insertOffset: 0, insertIntoTimeline: true };
   var FIELDS = Object.keys(DEFAULTS);
@@ -101,7 +101,7 @@
           fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: cancel,
           window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
           style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
-            outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, anchorX: s.anchorX, yPercent: s.yPercent },
+            outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadding: s.bgPadding, anchorX: s.anchorX, yPercent: s.yPercent },
           onLog: log, onProgress: function (p) { $('progress').value = p; } });
       });
     }).then(function (meta) {
