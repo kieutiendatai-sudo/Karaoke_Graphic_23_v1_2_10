@@ -96,19 +96,51 @@ test('ffmpeg args: two inputs, alphamerge + unpremultiply, ProRes 4444 with alph
   assert.throws(() => Args.overlayArgs({ fps: { num: 30, den: 1 }, width: 10, height: 10, durationSeconds: 1, codec: 'h264', output: 'x.mov' }), /Codec/);
 });
 
-test('background box: separate single-run layer (BorderStyle 3) under the text; off = unchanged', () => {
+const boxesFor = plan => { const rel = {}; plan.events.forEach(e => (e.rows || [e.line]).forEach(r => { rel[r] = { l: -r.length * 10, r: r.length * 10, t: -30, b: 20 }; }));
+  return { rel, ref: { t: -40, b: 25 } }; };
+
+test('background box: one rounded-rectangle drawing per cue (single run) under the text; off = unchanged', () => {
   const styles = ass => Object.fromEntries(ass.split('\n').filter(l => l.startsWith('Style:')).map(l => { const f = l.slice(7).split(','); return [f[0], f]; }));
-  // fields: [0]=name [5]=Outline colour [15]=BorderStyle [16]=Outline [17]=Shadow
   const offAss = Ass.buildAss(plan, style), off = styles(offAss);
   assert.deepEqual(Object.keys(off), ['Karaoke']); assert.equal(off.Karaoke[15], '1'); assert.equal(off.Karaoke[16], '2');
   assert.ok(dialogues(offAss).every(r => r.startsWith('Dialogue: 1,') && !r.includes('KaraokeBox')));
-  const bg = Object.assign({}, style, { bgEnabled: true, bgColor: '#102030', bgOpacity: 60, bgPadding: 14, shadow: 3 });
-  const onAss = Ass.buildAss(plan, bg), on = styles(onAss);
-  assert.equal(on.KaraokeBox[5], '&H66302010&'); assert.equal(on.KaraokeBox[15], '3'); assert.equal(on.KaraokeBox[16], '14'); assert.equal(on.KaraokeBox[17], '0');
+  const bg = Object.assign({}, style, { bgEnabled: true, bgColor: '#102030', bgOpacity: 60, bgPadX: 30, bgPadY: 10, bgRadius: 12, shadow: 3 });
+  const boxes = boxesFor(plan), stats = {};
+  assert.throws(() => Ass.buildAss(plan, bg), /số đo/);
+  const onAss = Ass.buildAss(plan, bg, { boxes, stats }), on = styles(onAss);
+  assert.equal(on.KaraokeBox[4], '&H66302010&'); assert.equal(on.KaraokeBox[5], '&H66302010&');    // fill = colour + 40% transparency (BGR)
   assert.equal(on.Karaoke[15], '1'); assert.equal(on.Karaoke[16], '2'); assert.equal(on.Karaoke[17], '3');    // text keeps outline/shadow
-  const rows = dialogues(onAss), boxes = rows.filter(r => r.includes(',KaraokeBox,')), texts = rows.filter(r => r.includes(',Karaoke,'));
-  assert.equal(boxes.length, plan.words); assert.equal(texts.length, plan.words);
-  boxes.forEach(r => { assert.ok(r.startsWith('Dialogue: 0,')); assert.equal((bodyOf(r).match(/\{\\1c/g) || []).length, 0); });   // one run: no colour tags => no seams
-  const m = styles(Ass.buildAss(plan, bg, { matte: true }));
-  assert.equal(m.KaraokeBox[5], '&H66FFFFFF&');
+  const rows = dialogues(onAss), draws = rows.filter(r => r.includes(',KaraokeBox,')), texts = rows.filter(r => r.includes(',Karaoke,'));
+  assert.equal(draws.length, plan.cues); assert.equal(texts.length, plan.words);           // one box per cue, not per word
+  draws.forEach(r => { assert.ok(r.startsWith('Dialogue: 0,')); assert.ok(/\\p1\}m /.test(r) && /\{\\p0\}$/.test(r)); assert.ok(r.includes(' b '), 'no curved corners'); });
+  // box = ink extents of the row + padding (x anchor 640 = 50% of 1280, y anchor 90)
+  const first = plan.events[0], w = first.line.length * 20 + 60, h = 65 + 20;
+  const m = /\\pos\(([\d.-]+),([\d.-]+)\)\\bord0\\shad0\\p1\}m ([\d.]+) 0 l ([\d.]+) 0/.exec(draws[0]);
+  assert.equal(Number(m[1]), 640 - first.line.length * 10 - 30); assert.equal(Number(m[2]), 90 - 40 - 10);
+  assert.ok(Math.abs(Number(m[4]) + Number(m[3]) - w) < 1e-6, m[3] + ' ' + m[4]);          // right end of the top edge = w - r, start = r
+  assert.equal(stats.clippedBoxes, undefined);
+  const flat = styles(Ass.buildAss(plan, bg, { boxes, matte: true }));
+  assert.equal(flat.KaraokeBox[4], '&H66FFFFFF&');                                          // matte keeps the alpha
+  assert.equal(flat.Karaoke[6], '&H00FFFFFF&');                                             // shadow colour is white in the matte, so the shadow reaches the alpha
+  const square = draws.length && Ass.buildAss(plan, Object.assign({}, bg, { bgRadius: 0 }), { boxes }).split('\n').find(l => l.includes(',KaraokeBox,'));
+  assert.ok(!square.includes(' b '), 'radius 0 must be a plain rectangle');
+  assert.ok(Ass.roundedRect(100, 40, 999).includes('b '));                                   // radius clamps to half the height, still valid
+});
+
+test('two rows: both rows are drawn each event; the highlight moves across rows; rows stacked around the centre', () => {
+  const c2 = Core.parseSRT('1\n00:00:01,000 --> 00:00:04,000\nShe found the\ndocuments today\n');
+  const p2 = Plan.buildPlan(c2, { fps: { num: 30, den: 1 }, twoRows: true });
+  assert.deepEqual(p2.events[0].rows, ['She found the', 'documents today']);
+  assert.deepEqual(p2.events.map(e => e.row), [0, 0, 0, 1, 1]);
+  assert.deepEqual(p2.events.map(e => e.line.slice(0, 0) + e.rows[e.row].slice(e.startChar, e.endChar)), ['She', 'found', 'the', 'documents', 'today']);
+  const ass = Ass.buildAss(p2, Object.assign({}, style, { lineSpacing: 80 })), rows = dialogues(ass);
+  assert.equal(rows.length, p2.words * 2);                                                  // two rows per word event
+  const y = r => Number(/\\pos\([\d.]+,([\d.]+)\)/.exec(r)[1]);
+  assert.ok(Math.abs(y(rows[1]) - y(rows[0]) - 56 * 0.8) < 1e-6);
+  assert.ok(Math.abs((y(rows[0]) + y(rows[1])) / 2 - 90) < 1e-6);                          // block centred on the row anchor
+  assert.ok(/\{\\1c&H0014D1F7&\}She/.test(rows[0]) && !/\\1c/.test(rows[1]));               // first word: row 1 highlighted, row 2 plain
+  assert.ok(!/\\1c/.test(rows[6]) && /\{\\1c&H0014D1F7&\}documents/.test(rows[7]));         // fourth word (row 2): row 2 highlighted
+  // default (one row): a two-line cue is still one merged line
+  const p1 = Plan.buildPlan(c2, { fps: { num: 30, den: 1 } });
+  assert.deepEqual(p1.events[0].rows, ['She found the documents today']);
 });

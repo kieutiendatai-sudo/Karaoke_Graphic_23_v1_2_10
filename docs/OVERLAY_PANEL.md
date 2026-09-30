@@ -67,3 +67,8 @@ căn lề, hủy, lỗi), host với DOM giả, cấu trúc manifest và test l�
 - ProRes dùng lượng tử cố định (`-qscale 2`, PSNR ≈ 65 dB so với mặc định của `prores_ks`) thay vì rate control mặc định (chậm hơn ~5 lần).
 - Mẫu đo (4 nhân, SRT 304 s, 30 fps): 82,8 s → 22,9 s. Hai file chạy song song: 38,3 s cho cả hai (so với 45,8 s tuần tự).
 - Ô **Số file render song song** chỉ có lợi khi máy còn dư nhân CPU.
+
+## Nền bo góc và cue 2 dòng
+
+- **Nền:** vẽ bằng một hình chữ nhật bo góc (ASS drawing, đường cong Bezier) cho **mỗi cue**, nằm dưới chữ. Kích thước lấy từ số đo thật của libass: trước khi render, panel chạy một lượt FFmpeg ngắn (mỗi dòng chữ một khung) để đo vùng chữ (gồm kerning, viền, bóng), rồi cộng **đệm ngang/dọc**. Chiều cao nền theo mẫu `Hgpqy|` nên không nhảy giữa các cue. `Bo góc = 0` cho nền vuông.
+- **2 dòng:** bật "Giữ 2 dòng của SRT…" thì dòng 1 của SRT là hàng trên, phần còn lại là hàng dưới; cả hai hàng luôn hiện, màu đổi lần lượt từ từ đầu hàng trên đến từ cuối hàng dưới (thời điểm từng từ tính như chế độ 1 dòng). Khoảng cách hàng chỉnh bằng "Khoảng cách 2 dòng". Chiều cao dải phụ đề tự động tăng khi bật chế độ này.

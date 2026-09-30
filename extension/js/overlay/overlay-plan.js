@@ -26,7 +26,7 @@
     return { num: p[0], den: p[1] };
   }
 
-  /* opts: {fps:{num,den}, offset (s), minFrames}. cues: KGCore.parseSRT() output. */
+  /* opts: {fps:{num,den}, offset (s), twoRows (keep the SRT's first line and the rest as two rows)}. cues: KGCore.parseSRT() output. */
   function buildPlan(cues, opts) {
     var fps = opts.fps, rate = fps.num / fps.den, offset = Number(opts.offset || 0), warnings = [];
     if (!cues.length) throw new Error('SRT không có cue.');
@@ -45,11 +45,17 @@
         end = next.startFrame;
       }
       if (end <= item.startFrame) { warnings.push('Cue ' + item.cue.id + ' bị bỏ (không còn frame).'); continue; }
-      var line = item.timing.lines[0];
+      var line = item.timing.lines[0], rows = [line];
+      if (opts.twoRows && item.cue.lines && item.cue.lines.length > 1) {
+        rows = [item.cue.lines[0], item.cue.lines.slice(1).join(' ')];
+        if (rows.join(' ') !== line) rows = [line];                    // never let the rows disagree with the timed text
+      }
       item.timing.words.forEach(function (w) {
         var a = item.startFrame + w.startFrame, b = Math.min(end, item.startFrame + w.endFrame);
         if (b <= a) { collapsed++; return; }
-        events.push({ cue: item.cue.id, startFrame: a, endFrame: b, line: line, startChar: w.startChar, endChar: w.endChar, word: w.word });
+        var row = rows.length > 1 && w.startChar >= rows[0].length + 1 ? 1 : 0, shift = row ? rows[0].length + 1 : 0;
+        events.push({ cue: item.cue.id, startFrame: a, endFrame: b, line: line, rows: rows, row: row,
+                      startChar: w.startChar - shift, endChar: w.endChar - shift, word: w.word });
       });
     }
     if (collapsed) warnings.push(collapsed + ' từ quá ngắn (0 frame) không được tô riêng.');

@@ -189,7 +189,7 @@ test('background box renders: opaque pixels appear around the text with the requ
   const opts = o => Object.assign({}, base, { outputDir: path.join(tmp, o.dir), baseName: 'b', fps: { num: 30, den: 1 },
     window: { startSeconds: 0.6, lengthSeconds: 0.5 }, style: Object.assign({}, base.style, o.style) });
   const off = decode((await Job.renderOverlay(opts({ dir: 'bgoff', style: { outline: 0 } }))).output).frame(4);
-  const on = decode((await Job.renderOverlay(opts({ dir: 'bgon', style: { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadding: 10 } }))).output).frame(4);
+  const on = decode((await Job.renderOverlay(opts({ dir: 'bgon', style: { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadX: 20, bgPadY: 10, bgRadius: 0 } }))).output).frame(4);
   const cnt = f => { let n = 0; for (let i = 3; i < f.length; i += 4) if (f[i] > 0) n++; return n; };
   assert.ok(cnt(on) > cnt(off) * 1.5, 'box adds no area: ' + cnt(on) + ' vs ' + cnt(off));
   let n = 0, a = 0, blue = 0;
@@ -203,4 +203,48 @@ test('background box renders: opaque pixels appear around the text with the requ
   assert.ok(vals.length > 200, 'box row too short: ' + vals.length);
   assert.ok(Math.max.apply(null, vals) - Math.min.apply(null, vals) <= 3, 'alpha varies along the box (seams): ' + Math.min.apply(null, vals) + '..' + Math.max.apply(null, vals));
   assert.ok(Math.abs(a / n - 127.5) < 12, 'box alpha mean ' + (a / n).toFixed(1) + ' expected ~128');
+});
+
+function inkAndBox(f) {                         // bbox of any coverage (the box) and of opaque pixels (the text with its outline)
+  const box = { l: W, r: -1, t: H, b: -1 }, ink = { l: W, r: -1, t: H, b: -1 };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const a = f[(y * W + x) * 4 + 3];
+    if (a > 0) { box.l = Math.min(box.l, x); box.r = Math.max(box.r, x); box.t = Math.min(box.t, y); box.b = Math.max(box.b, y); }
+    if (a >= 250) { ink.l = Math.min(ink.l, x); ink.r = Math.max(ink.r, x); ink.t = Math.min(ink.t, y); ink.b = Math.max(ink.b, y); }
+  }
+  return { box, ink };
+}
+
+test('rounded background: the box hugs the measured text (+padding), corners are cut, edges keep the alpha', async () => {
+  const opts = (dir, style) => Object.assign({}, base, { outputDir: path.join(tmp, dir), baseName: 'rr', fps: { num: 30, den: 1 },
+    window: { startSeconds: 0.6, lengthSeconds: 0.5 }, style: Object.assign({}, base.style, { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadX: 30, bgPadY: 12 }, style) });
+  const round = decode((await Job.renderOverlay(opts('rr1', { bgRadius: 24 }))).output).frame(4);
+  const square = decode((await Job.renderOverlay(opts('rr0', { bgRadius: 0 }))).output).frame(4);
+  const R = inkAndBox(round), S = inkAndBox(square), alpha = (f, x, y) => f[(y * W + x) * 4 + 3];
+  for (const k of ['l', 'r', 't', 'b']) assert.ok(Math.abs(R.box[k] - S.box[k]) <= 1, 'box ' + k + ': ' + R.box[k] + ' vs ' + S.box[k]);   // same rectangle, only the corners differ
+  assert.ok(Math.abs((R.box.r - R.box.l + 1) - (R.ink.r - R.ink.l + 1 + 60)) <= 4, 'box width ' + (R.box.r - R.box.l + 1) + ' vs ink ' + (R.ink.r - R.ink.l + 1) + ' + 2*30');
+  assert.ok(R.ink.l - R.box.l >= 26 && R.box.r - R.ink.r >= 26, 'horizontal padding too small');
+  assert.ok(R.ink.t - R.box.t >= 10 && R.box.b - R.ink.b >= 10, 'vertical padding too small');
+  assert.ok(alpha(square, S.box.l + 1, S.box.t + 1) > 100, 'square corner should be filled');
+  assert.ok(alpha(round, R.box.l + 1, R.box.t + 1) < 20, 'rounded corner should be transparent: ' + alpha(round, R.box.l + 1, R.box.t + 1));
+  assert.ok(alpha(round, R.box.l + 24, R.box.t + 1) > 100, 'straight part of the top edge stays filled');
+  assert.ok(Math.abs(alpha(round, Math.round((R.box.l + R.box.r) / 2), R.box.t + 3) - 128) <= 3);
+});
+
+test('two rows: both rows visible, the highlight goes through row 1 then row 2', async () => {
+  const srt = '1\n00:00:00,500 --> 00:00:03,500\nShe found the\ndocuments today\n';
+  const meta = await Job.renderOverlay(Object.assign({}, base, { srtText: srt, outputDir: path.join(tmp, 'two'), baseName: 'two', fps: { num: 30, den: 1 }, twoRows: true,
+    style: Object.assign({}, base.style, { fontSize: 44, outline: 0 }) }));
+  const video = decode(meta.output), mid = H / 2, byRow = f => {                 // highlight and white pixel counts in the upper / lower half
+    const o = { hlTop: 0, hlBot: 0, whiteTop: 0, whiteBot: 0 };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (f * W * H + y * W + x) * 4, p = [video.raw[i], video.raw[i + 1], video.raw[i + 2], video.raw[i + 3]];
+      if (near(p, HL, 40)) o[y < mid ? 'hlTop' : 'hlBot']++; else if (near(p, WHITE, 40)) o[y < mid ? 'whiteTop' : 'whiteBot']++;
+    }
+    return o;
+  };
+  const first = byRow(2), last = byRow(video.count - 3);
+  assert.ok(first.whiteTop > 100 && first.whiteBot > 100, 'both rows must be visible from the start: ' + JSON.stringify(first));
+  assert.ok(first.hlTop > 20 && first.hlBot === 0, 'first word highlights row 1 only: ' + JSON.stringify(first));
+  assert.ok(last.hlBot > 20 && last.hlTop === 0, 'last word highlights row 2 only: ' + JSON.stringify(last));
 });

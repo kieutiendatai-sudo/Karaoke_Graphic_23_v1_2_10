@@ -3,9 +3,9 @@
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), crypto = require('crypto');
 const Core = require('../core.js'), Plan = require('./overlay-plan.js'), Ass = require('./ass-writer.js'),
-  Args = require('./ffmpeg-args.js'), Font = require('./font-info.js');
+  Args = require('./ffmpeg-args.js'), Font = require('./font-info.js'), Measure = require('./overlay-measure.js');
 
-const VERSION = 1;
+const VERSION = 2;
 const exe = process.platform === 'win32' ? '.exe' : '';
 
 function resolveFfmpeg(dir, extensionRoot) {
@@ -41,6 +41,7 @@ function run(ffmpeg, args, opts) {
     if (opts.cancel) opts.cancel.child = child;
     let out = '', err = '', pending = '';
     child.stdout.on('data', chunk => {
+      if (opts.onStdout) return opts.onStdout(chunk);
       out += chunk; pending += chunk;
       const lines = pending.split(/\r?\n/); pending = lines.pop();
       lines.forEach(line => {
@@ -87,7 +88,7 @@ async function renderOverlay(opts) {
   const fontBytes = fs.readFileSync(style.fontFile);
   const font = Font.readFontInfo(fontBytes);
   const cues = Core.parseSRT(opts.srtText);
-  let plan = Plan.buildPlan(cues, { fps: opts.fps, offset: opts.offset });
+  let plan = Plan.buildPlan(cues, { fps: opts.fps, offset: opts.offset, twoRows: !!opts.twoRows });
   const preview = !!opts.window;
   if (preview) plan = Plan.clipPlan(plan, Math.round(opts.window.startSeconds * opts.fps.num / opts.fps.den),
     Math.max(1, Math.round(opts.window.lengthSeconds * opts.fps.num / opts.fps.den)));
@@ -95,7 +96,7 @@ async function renderOverlay(opts) {
     width: opts.width, height: opts.height });
   const codec = opts.codec || 'prores4444', alphaBits = opts.alphaBits || 16;
   const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
-    font: sha(fontBytes), first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.line, e.startChar, e.endChar]) }));
+    font: sha(fontBytes), first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.rows || e.line, e.row || 0, e.startChar, e.endChar]) }));
 
   fs.mkdirSync(opts.outputDir, { recursive: true });
   const name = opts.baseName + '_karaoke' + (preview ? '_preview' : '');
@@ -112,8 +113,21 @@ async function renderOverlay(opts) {
   const partial = name + '.partial.mov', partialPath = path.join(opts.outputDir, partial);
   try {
     fs.copyFileSync(style.fontFile, path.join(work, 'fonts', path.basename(style.fontFile)));
-    fs.writeFileSync(path.join(work, 'karaoke.ass'), Ass.buildAss(plan, assStyle), 'utf8');
-    fs.writeFileSync(path.join(work, 'matte.ass'), Ass.buildAss(plan, assStyle, { matte: true }), 'utf8');
+    let boxes = null;
+    if (assStyle.bgEnabled) {
+      const rows = Array.from(new Set([].concat(...plan.events.map(e => e.rows || [e.line]))));
+      const m = Measure.buildMeasureAss(rows, assStyle), grab = Measure.frameBoxes(opts.width, opts.height);
+      fs.writeFileSync(path.join(work, 'measure.ass'), m.text, 'utf8');
+      log('Đo ' + rows.length + ' dòng chữ để vẽ nền…');
+      await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height + ':r=1:d=' + m.frames,
+        '-vf', "ass=filename='measure.ass':fontsdir='fonts':shaping=simple,format=gray", '-frames:v', String(m.frames), '-f', 'rawvideo', '-'],
+        { cwd: work, cancel: opts.cancel, onStdout: c => grab.push(c) });
+      boxes = Measure.toRelative(rows, grab.boxes, m);
+    }
+    const stats = {};
+    fs.writeFileSync(path.join(work, 'karaoke.ass'), Ass.buildAss(plan, assStyle, { boxes, stats }), 'utf8');
+    fs.writeFileSync(path.join(work, 'matte.ass'), Ass.buildAss(plan, assStyle, { matte: true, boxes }), 'utf8');
+    if (stats.clippedBoxes) log('Cảnh báo: ' + stats.clippedBoxes + ' nền vượt khung ' + opts.width + 'x' + opts.height + ' (tăng "Cao dải phụ đề" hoặc giảm cỡ chữ/đệm).');
     try { fs.unlinkSync(partialPath); } catch (e) { /* none */ }
     // one still frame per segment instead of every output frame (the text only changes at word/cue boundaries)
     await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height, '-frames:v', '1', '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-enc_time_base', '1:1000000', '-f', 'nut', 'black.nut'], { cwd: work, cancel: opts.cancel });

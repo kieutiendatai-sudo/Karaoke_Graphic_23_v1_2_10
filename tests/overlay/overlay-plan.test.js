@@ -70,3 +70,9 @@ test('font info reads family/weight from a real font', () => {
   assert.match(info.family, /^DejaVu/); assert.equal(typeof info.weightClass, 'number'); assert.equal(info.variable, false);
   assert.throws(() => Font.readFontInfo(Buffer.from('not a font at all, sorry!!')), /font/i);
 });
+
+test('parseSRT keeps the SRT rows (cue.lines) while cue.text stays one line', () => {
+  const d = Core.parseSRT('1\n00:00:01,000 --> 00:00:03,000\n<i>She  found</i> the\ndocuments   today\n')[0];
+  assert.deepEqual(d.lines, ['She found the', 'documents today']); assert.equal(d.text, 'She found the documents today');
+  assert.deepEqual(Core.parseSRT('1\n00:00:01,000 --> 00:00:03,000\nOne row only\n')[0].lines, ['One row only']);
+});

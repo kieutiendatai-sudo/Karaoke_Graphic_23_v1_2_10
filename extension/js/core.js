@@ -44,10 +44,11 @@
       if (!m) fail('Không đọc được cue SRT thứ ' + (index + 1));
       var text = lines.join('\n').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '')
         .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+      var rows=text.split('\n').map(oneLine).filter(Boolean);   // SRT rows, for the optional two-row mode
       text=oneLine(text);
       var start = stamp(m[1]), end = stamp(m[2]);
       if (end <= start || !text) fail('Cue rỗng hoặc thời lượng <= 0: ' + (index + 1));
-      cues.push({id:index + 1, start:start, end:end, text:text});
+      cues.push({id:index + 1, start:start, end:end, text:text, lines:rows});
     });
     return cues;
   }
