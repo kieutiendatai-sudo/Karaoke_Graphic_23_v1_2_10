@@ -192,5 +192,12 @@ test('background box renders: opaque pixels appear around the text with the requ
   let n = 0, a = 0, blue = 0;
   for (let i = 0; i < on.length; i += 4) if (on[i + 2] > 200 && on[i] < 40 && on[i + 3] > 0) { n++; a += on[i + 3]; blue++; }
   assert.ok(n > 2000, 'blue box pixels: ' + n);
+  // no seams: the topmost box rows (above any glyph) have one constant alpha across the whole width
+  const W = 1280; let top = -1;
+  for (let y = 0; y < on.length / 4 / W && top < 0; y++) for (let x = 0; x < W; x++) if (on[(y * W + x) * 4 + 3] > 0) { top = y; break; }
+  const row = top + 3, vals = []; for (let x = 0; x < W; x++) { const v = on[(row * W + x) * 4 + 3]; if (v > 0) vals.push(v); }
+  vals.splice(0, 3); vals.splice(-3);                                   // antialiased left/right edges
+  assert.ok(vals.length > 200, 'box row too short: ' + vals.length);
+  assert.ok(Math.max.apply(null, vals) - Math.min.apply(null, vals) <= 3, 'alpha varies along the box (seams): ' + Math.min.apply(null, vals) + '..' + Math.max.apply(null, vals));
   assert.ok(Math.abs(a / n - 127.5) < 12, 'box alpha mean ' + (a / n).toFixed(1) + ' expected ~128');
 });

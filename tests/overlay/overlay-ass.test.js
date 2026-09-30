@@ -96,13 +96,19 @@ test('ffmpeg args: two inputs, alphamerge + unpremultiply, ProRes 4444 with alph
   assert.throws(() => Args.overlayArgs({ fps: { num: 30, den: 1 }, width: 10, height: 10, durationSeconds: 1, codec: 'h264', output: 'x.mov' }), /Codec/);
 });
 
-test('background box: BorderStyle 3, box colour + alpha in OutlineColour, padding in Outline; off = unchanged', () => {
-  const styleLine = ass => ass.split('\n').find(l => l.startsWith('Style:')).split(',');   // [.., 5]=Outline colour, [15]=BorderStyle, [16]=Outline, [17]=Shadow
-  const off = styleLine(Ass.buildAss(plan, style));
-  assert.equal(off[15], '1'); assert.equal(off[16], '2');
-  const on = styleLine(Ass.buildAss(plan, Object.assign({}, style, { bgEnabled: true, bgColor: '#102030', bgOpacity: 60, bgPadding: 14, shadow: 3 })));
-  assert.equal(on[5], '&H66302010&');                    // 40% transparent = 0x66, BGR order
-  assert.equal(on[15], '3'); assert.equal(on[16], '14'); assert.equal(on[17], '0');
-  const m = styleLine(Ass.buildAss(plan, Object.assign({}, style, { bgEnabled: true, bgColor: '#102030', bgOpacity: 60 }), { matte: true }));
-  assert.equal(m[5], '&H66FFFFFF&');                     // matte keeps the box alpha so the overlay alpha matches
+test('background box: separate single-run layer (BorderStyle 3) under the text; off = unchanged', () => {
+  const styles = ass => Object.fromEntries(ass.split('\n').filter(l => l.startsWith('Style:')).map(l => { const f = l.slice(7).split(','); return [f[0], f]; }));
+  // fields: [0]=name [5]=Outline colour [15]=BorderStyle [16]=Outline [17]=Shadow
+  const offAss = Ass.buildAss(plan, style), off = styles(offAss);
+  assert.deepEqual(Object.keys(off), ['Karaoke']); assert.equal(off.Karaoke[15], '1'); assert.equal(off.Karaoke[16], '2');
+  assert.ok(dialogues(offAss).every(r => r.startsWith('Dialogue: 1,') && !r.includes('KaraokeBox')));
+  const bg = Object.assign({}, style, { bgEnabled: true, bgColor: '#102030', bgOpacity: 60, bgPadding: 14, shadow: 3 });
+  const onAss = Ass.buildAss(plan, bg), on = styles(onAss);
+  assert.equal(on.KaraokeBox[5], '&H66302010&'); assert.equal(on.KaraokeBox[15], '3'); assert.equal(on.KaraokeBox[16], '14'); assert.equal(on.KaraokeBox[17], '0');
+  assert.equal(on.Karaoke[15], '1'); assert.equal(on.Karaoke[16], '2'); assert.equal(on.Karaoke[17], '3');    // text keeps outline/shadow
+  const rows = dialogues(onAss), boxes = rows.filter(r => r.includes(',KaraokeBox,')), texts = rows.filter(r => r.includes(',Karaoke,'));
+  assert.equal(boxes.length, plan.words); assert.equal(texts.length, plan.words);
+  boxes.forEach(r => { assert.ok(r.startsWith('Dialogue: 0,')); assert.equal((bodyOf(r).match(/\{\\1c/g) || []).length, 0); });   // one run: no colour tags => no seams
+  const m = styles(Ass.buildAss(plan, bg, { matte: true }));
+  assert.equal(m.KaraokeBox[5], '&H66FFFFFF&');
 });

@@ -42,26 +42,31 @@
     options = options || {};
     var white = '#FFFFFF', matte = !!options.matte;
     var text = color(matte ? white : style.textColor), high = color(matte ? white : style.highlightColor);
-    // Background box: ASS BorderStyle 3 draws an opaque box in OutlineColour, padded by Outline (the stroke colour is not used then).
-    var box = !!style.bgEnabled, outlineWidth = style.outline || 0, shadowWidth = style.shadow || 0;
-    var outline = box ? color(matte ? white : style.bgColor || '#000000', style.bgOpacity == null ? 100 : style.bgOpacity) : color(matte ? white : style.outlineColor);
-    if (box) { outlineWidth = style.bgPadding == null ? 12 : style.bgPadding; shadowWidth = 0; }
+    var box = !!style.bgEnabled, outline = color(matte ? white : style.outlineColor);
+    // Background box: its own layer (ASS BorderStyle 3, box colour in OutlineColour, padded by Outline) holding the whole line as ONE run.
+    // Putting the box on the coloured text would draw one box per colour run and the padded boxes would overlap into darker bands.
+    var boxColor = box ? color(matte ? white : style.bgColor || '#000000', style.bgOpacity == null ? 100 : style.bgOpacity) : null;
     var W = style.width, H = style.height;
     var x = Math.round(W * (style.anchorX == null ? 50 : style.anchorX) / 100 * 100) / 100, y = H / 2;
     var an = alignCode(style.align);
+    function styleLine(name, primary, secondary, outlineCol, borderStyle, outlineW, shadowW) {
+      return 'Style: ' + name + ',' + style.fontFamily.replace(/,/g, ' ') + ',' + style.fontSize + ',' + primary + ',' + secondary + ',' + outlineCol + ',' + color('#000000') + ',' +
+        (style.bold ? -1 : 0) + ',0,0,0,100,100,' + (style.spacing || 0) + ',0,' + borderStyle + ',' + outlineW + ',' + shadowW + ',' + an + ',0,0,0,1';
+    }
     var lines = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: ' + W, 'PlayResY: ' + H, 'WrapStyle: 2',
       'ScaledBorderAndShadow: yes', '', '[V4+ Styles]',
       'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-      'Style: Karaoke,' + style.fontFamily.replace(/,/g, ' ') + ',' + style.fontSize + ',' + text + ',' + high + ',' + outline + ',' + color('#000000') + ',' +
-        (style.bold ? -1 : 0) + ',0,0,0,100,100,' + (style.spacing || 0) + ',0,' + (box ? 3 : 1) + ',' + outlineWidth + ',' + shadowWidth + ',' + an + ',0,0,0,1',
-      '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'];
+      styleLine('Karaoke', text, high, outline, 1, style.outline || 0, style.shadow || 0)].concat(
+      box ? [styleLine('KaraokeBox', text, high, boxColor, 3, style.bgPadding == null ? 12 : style.bgPadding, 0)] : [],
+      ['', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text']);
     var first = plan.firstFrame, fps = plan.fps;
     plan.events.forEach(function (e) {
       var line = e.line;
       var body = escapeText(line.slice(0, e.startChar)) + '{\\1c' + high + '}' + escapeText(line.slice(e.startChar, e.endChar)) +
         '{\\1c' + text + '}' + escapeText(line.slice(e.endChar));
-      lines.push('Dialogue: 0,' + csToTime(frameToCs(e.startFrame - first, fps)) + ',' + csToTime(frameToCs(e.endFrame - first, fps)) +
-        ',Karaoke,,0,0,0,,{\\an' + an + '\\pos(' + x + ',' + y + ')}' + body);
+      var t0 = csToTime(frameToCs(e.startFrame - first, fps)), t1 = csToTime(frameToCs(e.endFrame - first, fps)), pos = '{\\an' + an + '\\pos(' + x + ',' + y + ')}';
+      if (box) lines.push('Dialogue: 0,' + t0 + ',' + t1 + ',KaraokeBox,,0,0,0,,' + pos + '{\\1a&HFF&}' + escapeText(line));
+      lines.push('Dialogue: 1,' + t0 + ',' + t1 + ',Karaoke,,0,0,0,,' + pos + body);
     });
     return lines.join('\n') + '\n';
   }
