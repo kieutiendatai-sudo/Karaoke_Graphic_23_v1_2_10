@@ -1,6 +1,6 @@
 # Kế hoạch kiến trúc: Karaoke overlay render bằng FFmpeg (Premiere Pro 23, CEP)
 
-Trạng thái: **KẾ HOẠCH — chưa cài đặt, chưa xóa code cũ, không đụng `main`.**
+Trạng thái: **đã triển khai bản đầu (xem `docs/OVERLAY_PANEL.md`); code cũ chưa bị xóa.** Phần còn lại của tài liệu là kế hoạch gốc.
 Nhánh: `claude/kind-newton-ufw16i` (nhánh làm việc, không phải `main`).
 
 ```

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Karaoke Overlay</title>
+<link rel="stylesheet" href="css/overlay.css"></head>
+<body>
+<header><h1>Karaoke <em>Overlay</em></h1><p>SRT → ASS → FFmpeg → một clip overlay trong suốt · Premiere 23</p></header>
+<div id="env" class="notice"></div>
+<section><h2>1 · Tệp</h2>
+<label>Thư mục FFmpeg (chứa ffmpeg.exe)<div class="row"><input id="ffmpegDir" placeholder="trống = dùng PATH hoặc thư mục bin của panel"><button data-pick="ffmpegDir" data-kind="dir">…</button></div></label>
+<label>File SRT<div class="row"><input id="srtPath"><button data-pick="srtPath" data-kind="file" data-ext="srt">…</button></div></label>
+<label>Thư mục kết quả<div class="row"><input id="outputDir"><button data-pick="outputDir" data-kind="dir">…</button></div></label>
+<button id="checkFfmpeg">Kiểm tra FFmpeg</button>
+</section>
+<section><h2>2 · Kiểu chữ (một dòng)</h2><div class="grid">
+<label>File font (.ttf/.otf)<div class="row"><input id="fontFile"><button data-pick="fontFile" data-kind="file">…</button></div></label>
+<label>Cỡ chữ (px)<input id="fontSize" type="number" min="8" max="400"></label>
+<label class="check"><input id="bold" type="checkbox">In đậm (nếu font chưa đậm)</label>
+<label>Căn ngang<select id="align"><option value="center">Giữa</option><option value="left">Trái</option><option value="right">Phải</option></select></label>
+<label>Màu chữ chưa đọc<input id="textColor" type="color"></label>
+<label>Màu từ đang đọc<input id="highlightColor" type="color"></label>
+<label>Màu viền<input id="outlineColor" type="color"></label>
+<label>Độ dày viền<input id="outline" type="number" step="0.1" min="0" max="20"></label>
+<label>Bóng<input id="shadow" type="number" step="0.1" min="0" max="20"></label>
+<label>Điểm neo X (% chiều rộng)<input id="anchorX" type="number" min="0" max="100" step="0.5"></label>
+<label>Vị trí Y (% chiều cao khung)<input id="yPercent" type="number" min="0" max="100" step="0.5"></label>
+<label>Cao dải phụ đề (px, 0 = tự động)<input id="canvasHeight" type="number" min="0" step="2"></label>
+</div></section>
+<section><h2>3 · Khung hình / thời gian</h2><div class="grid">
+<label>FPS<select id="fps"><option value="auto">Theo sequence</option><option>23.976</option><option>24</option><option>25</option><option>29.97</option><option>30</option><option>50</option><option>59.94</option><option>60</option></select></label>
+<label>Rộng (px, 0 = theo sequence)<input id="width" type="number" min="0" step="2"></label>
+<label>Offset SRT (giây)<input id="offset" type="number" step="0.001"></label>
+<label>Codec<select id="codec"><option value="prores4444">ProRes 4444 (alpha)</option><option value="qtrle">Animation qtrle (alpha, nhỏ hơn)</option></select></label>
+</div></section>
+<section><h2>4 · Chạy</h2>
+<div class="grid"><label>Xem thử từ giây<input id="previewStart" type="number" step="0.5" min="0"></label><label>Dài (giây)<input id="previewLength" type="number" step="0.5" min="1"></label></div>
+<div class="grid"><button id="preview">Xem thử (render ngắn)</button><button id="render" class="primary">Render overlay</button></div>
+<div class="grid"><label>Chèn vào track V<input id="insertTrack" type="number" min="1"></label><label>Lệch thời gian chèn (giây)<input id="insertOffset" type="number" step="0.001"></label></div>
+<label class="check"><input id="insertIntoTimeline" type="checkbox">Chèn clip vào timeline (tắt: chỉ nhập vào Project)</label>
+<div class="grid"><button id="import" class="primary">Nhập vào Premiere</button><button id="stop">Dừng</button></div>
+<button id="openFolder">Mở thư mục kết quả</button>
+<progress id="progress" max="1" value="0"></progress>
+</section>
+<section><h2>Nhật ký</h2><pre id="log"></pre></section>
+<script src="js/overlay/overlay-panel.js"></script>
+</body></html>

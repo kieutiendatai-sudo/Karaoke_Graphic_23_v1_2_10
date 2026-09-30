@@ -39,3 +39,7 @@ LOG VÀ KIỂM CHỨNG
 - Ghép nhanh chỉ đọc clip; Hoàn tác đọc đối chiếu Crop khi được yêu cầu.
 - Chuẩn bị Graphic tốc độ 100%, Crop Zoom OFF, Feather = 0; ghép nhanh
   không kiểm tra các thông số đó. Thiếu Crop sẽ dừng tại cue tương ứng.
+
+PANEL MỚI: KARAOKE OVERLAY (FFmpeg)
+- Window > Extensions > Karaoke Overlay. Không tạo Graphic/keyframe; chỉ một clip overlay có alpha.
+- Xem docs/OVERLAY_PANEL.md. Panel Graphic cũ vẫn giữ nguyên.

@@ -1,7 +1,10 @@
 /* Shared, dependency-free timing and geometry. Single-line karaoke only. */
 (function(root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.KGCore = factory();
+  var api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  // CEP with --mixed-context defines `module` in the page too: keep the KGCore global available.
+  if (typeof window !== 'undefined') window.KGCore = api;
+  else if (!(typeof module === 'object' && module.exports)) root.KGCore = api;
 }(this, function() {
   'use strict';
   function fail(s) { throw new Error(s); }
