@@ -7,7 +7,7 @@
   var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null, Files = null;
   var logs = [], rendered = {}, cancels = [], stopAll = false, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
-    textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadX: 24, bgPadY: 12, bgRadius: 16, twoRows: false, lineSpacing: 85, anchorX: 50, yPercent: 85,
+    textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadX: 24, bgPadY: 12, bgRadius: 16, twoRows: false, lineSpacing: 85, maxWidthPercent: 90, anchorX: 50, yPercent: 85,
     canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
     parallel: 2, autoImport: true };
   var FIELDS = Object.keys(DEFAULTS), COLORS = ['textColor', 'highlightColor', 'outlineColor', 'bgColor'];
@@ -122,7 +122,7 @@
               fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: token, twoRows: s.twoRows,
               window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
               style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
-                outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadX: s.bgPadX, bgPadY: s.bgPadY, bgRadius: s.bgRadius, lineSpacing: s.lineSpacing, anchorX: s.anchorX, yPercent: s.yPercent },
+                outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadX: s.bgPadX, bgPadY: s.bgPadY, bgRadius: s.bgRadius, lineSpacing: s.lineSpacing, maxWidthPercent: s.maxWidthPercent, anchorX: s.anchorX, yPercent: s.yPercent },
               onLog: function (t) { log(tag + t); },
               onProgress: function (p) { progress[i] = p; $('progress').value = progress.reduce(function (a, b) { return a + b; }, 0) / files.length; } });
           });

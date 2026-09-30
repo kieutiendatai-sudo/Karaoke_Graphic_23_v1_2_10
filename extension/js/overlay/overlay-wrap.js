@@ -7,13 +7,14 @@
 }(this, function () {
   'use strict';
 
-  /* Widest ink (px) a row may have, from the canvas width, the anchor and the background padding. */
+  /* Widest ink (px) a row may have: the canvas minus a 2% margin, capped by style.maxWidthPercent (the whole subtitle, box padding
+     included, as % of the canvas width), then reduced by the background padding. */
   function widthLimit(style) {
     var W = style.width, margin = Math.round(W * 0.02), x = W * (style.anchorX == null ? 50 : style.anchorX) / 100;
-    var pad = style.bgEnabled ? (style.bgPadX == null ? 24 : style.bgPadX) : 0, avail;
-    if (style.align === 'left') avail = W - x - margin - pad;
-    else if (style.align === 'right') avail = x - margin - pad;
-    else avail = 2 * Math.min(x, W - x) - 2 * margin - 2 * pad;
+    var pad = style.bgEnabled ? (style.bgPadX == null ? 24 : style.bgPadX) : 0, cap = style.maxWidthPercent > 0 ? W * style.maxWidthPercent / 100 : Infinity, avail;
+    if (style.align === 'left') avail = Math.min(W - x - margin, cap) - pad;
+    else if (style.align === 'right') avail = Math.min(x - margin, cap) - pad;
+    else avail = Math.min(2 * Math.min(x, W - x) - 2 * margin, cap) - 2 * pad;
     return Math.max(1, Math.floor(avail));
   }
 

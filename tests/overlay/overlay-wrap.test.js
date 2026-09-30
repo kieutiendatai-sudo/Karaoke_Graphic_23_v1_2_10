@@ -14,6 +14,14 @@ test('widthLimit: canvas, margin, anchor and background padding', () => {
   assert.equal(Wrap.widthLimit({ width: 1000, anchorX: 90, align: 'right' }), 900 - 20);
 });
 
+test('widthLimit: maxWidthPercent caps the whole subtitle (box padding included), never enlarges the default', () => {
+  assert.equal(Wrap.widthLimit({ width: 1280, anchorX: 50, align: 'center', maxWidthPercent: 70 }), 896);
+  assert.equal(Wrap.widthLimit({ width: 1280, anchorX: 50, align: 'center', bgEnabled: true, bgPadX: 30, maxWidthPercent: 70 }), 896 - 60);
+  assert.equal(Wrap.widthLimit({ width: 1280, anchorX: 50, align: 'center', maxWidthPercent: 100 }), 1280 - 52);        // margin still applies
+  assert.equal(Wrap.widthLimit({ width: 1000, anchorX: 10, align: 'left', maxWidthPercent: 50, bgEnabled: true, bgPadX: 20 }), 480);
+  assert.equal(Wrap.widthLimit({ width: 1280, anchorX: 50, align: 'center', maxWidthPercent: 0 }), 1280 - 52);         // 0 = no cap
+});
+
 test('rows that already fit are kept (SRT layout wins); a fitting single line stays one row', async () => {
   const c = [Object.assign(mk('short line\nsecond row'), { id: 1 }), Object.assign(mk('just one row'), { id: 2 })];
   const r = await Wrap.wrapCues(c, fake([]), 300);
