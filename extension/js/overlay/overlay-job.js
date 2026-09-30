@@ -81,6 +81,8 @@ function sha(value) { return crypto.createHash('sha256').update(value).digest('h
           window:{startSeconds,lengthSeconds}, codec, alphaBits, force, keepWork, onProgress, onLog, cancel} */
 async function renderOverlay(opts) {
   const log = opts.onLog || (() => {});
+  const timings = {}; let lapAt = Date.now();
+  const lap = name => { const n = Date.now(); timings[name] = Math.round((n - lapAt) / 100) / 10; lapAt = n; };     // seconds per stage, reported in the log and the .json
   const style = Object.assign({ textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 0, shadow: 0,
     bold: false, align: 'center', anchorX: 50, yPercent: 85 }, opts.style);
   if (!style.fontFile) throw new Error('Chưa chọn file font (.ttf/.otf).');
@@ -111,6 +113,7 @@ async function renderOverlay(opts) {
     } catch (e) { /* re-render */ }
   }
 
+  lap('chuan_bi');
   const work = path.join(os.tmpdir(), 'KaraokeOverlay', sha(output + Date.now() + Math.random()).slice(0, 12));
   fs.mkdirSync(path.join(work, 'fonts'), { recursive: true });
   const partial = name + '.partial.mov', partialPath = path.join(opts.outputDir, partial);
@@ -152,6 +155,7 @@ async function renderOverlay(opts) {
       boxes = { rel: only, ref, blank: rows.filter(r => !rel[r]) };
       if (boxes.blank.length) log('Bỏ qua nền của ' + boxes.blank.length + ' dòng không có chữ nhìn thấy (ký tự vô hình).');
     }
+    lap('do_chu');
     const stats = {};
     fs.writeFileSync(path.join(work, 'karaoke.ass'), Ass.buildAss(plan, assStyle, { boxes, stats }), 'utf8');
     fs.writeFileSync(path.join(work, 'matte.ass'), Ass.buildAss(plan, assStyle, { matte: true, boxes }), 'utf8');
@@ -166,10 +170,24 @@ async function renderOverlay(opts) {
     log('Render overlay ' + opts.width + 'x' + opts.height + ', ' + plan.durationSeconds.toFixed(2) + 's, ' + plan.words + ' từ, ' + codec + '.');
     plan.warnings.slice(0, 3).forEach(w => log('Cảnh báo: ' + w));
     if (plan.warnings.length > 3) log('Cảnh báo: còn ' + (plan.warnings.length - 3) + ' cảnh báo tương tự (xem file .json).');
+    lap('tao_ass');
     await run(opts.ffmpeg, args, { cwd: work, cancel: opts.cancel,
       onProgress: s => opts.onProgress && opts.onProgress(Math.min(0.999, s / plan.durationSeconds)) });
     if (!fs.existsSync(partialPath) || fs.statSync(partialPath).size === 0) throw new Error('FFmpeg không tạo được file đầu ra.');
-    await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-f', 'null', '-'], { cancel: opts.cancel });
+    lap('ffmpeg_render');
+    // Full decoding of a multi-GB ProRes file costs as much as a third of the render. Read every packet (container integrity + duration) and
+    // decode short samples at the start, middle and end instead; opts.fullVerify restores the complete decode.
+    if (opts.fullVerify) await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-f', 'null', '-'], { cancel: opts.cancel });
+    else {
+      let seen = 0;
+      await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-map', '0:v:0', '-c', 'copy', '-progress', 'pipe:1', '-f', 'null', '-'],
+        { cancel: opts.cancel, onProgress: sec => { seen = sec; } });
+      if (seen < plan.durationSeconds - 0.25) throw new Error('File overlay bị thiếu đoạn cuối (' + seen.toFixed(2) + ' s / ' + plan.durationSeconds.toFixed(2) + ' s).');
+      const sample = Math.min(1.5, plan.durationSeconds);
+      for (const at of [0, Math.max(0, plan.durationSeconds / 2 - sample / 2), Math.max(0, plan.durationSeconds - sample - 0.1)])
+        await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-ss', at.toFixed(3), '-i', partialPath, '-t', sample.toFixed(3), '-map', '0:v:0', '-f', 'null', '-'], { cancel: opts.cancel });
+    }
+    lap('kiem_tra_file');
     fs.renameSync(partialPath, output);
   } catch (e) {
     try { fs.unlinkSync(partialPath); } catch (x) { /* none */ }
@@ -179,8 +197,9 @@ async function renderOverlay(opts) {
   }
   const meta = { version: VERSION, mode: 'overlay', identity, output, codec, fps: opts.fps, frames: plan.frames,
     canvas: { w: opts.width, h: opts.height }, startFrame: plan.firstFrame, startSeconds: plan.startSeconds, durationSeconds: plan.durationSeconds,
-    words: plan.words, cues: plan.cues, preview, font: font.family, warnings: plan.warnings,
+    words: plan.words, cues: plan.cues, preview, font: font.family, warnings: plan.warnings, timings,
     premiere: { position: [0.5, style.yPercent / 100], scale: 100 } };
+  log('Thời gian (giây): ' + Object.keys(timings).map(k => k + ' ' + timings[k]).join(' · ') + ' · dung lượng ' + Math.round(fs.statSync(output).size / 1048576) + ' MB');
   fs.writeFileSync(sidecar, JSON.stringify(meta, null, 1));
   if (opts.onProgress) opts.onProgress(1);
   return meta;
