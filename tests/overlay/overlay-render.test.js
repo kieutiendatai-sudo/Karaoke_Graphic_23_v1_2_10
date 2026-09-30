@@ -95,8 +95,11 @@ test('no dark fringe: semi-transparent glyph edges keep the text colour (outline
   assert.ok(sum / n >= 215, 'edge pixels are darkened (premultiplied colour): mean max channel ' + (sum / n).toFixed(1));
 });
 
-test('whole-word instant change: one word highlighted per frame, switching exactly at each word start frame', async () => {
-  const { meta, video } = await renderDefault();
+for (const rate of [{ num: 30, den: 1 }, { num: 25, den: 1 }, null])
+test('whole-word instant change: one word highlighted per frame, switching exactly at each word start frame (' + (rate ? rate.num + ' fps' : '29.97 fps') + ')', async () => {
+  let meta, video;
+  if (!rate) ({ meta, video } = await renderDefault());
+  else { meta = await Job.renderOverlay(Object.assign({ outputDir: path.join(tmp, 'r' + rate.num), fps: rate }, base)); video = decode(meta.output); }
   const Core = require('../../extension/js/core.js'), Plan = require('../../extension/js/overlay/overlay-plan.js');
   const plan = Plan.buildPlan(Core.parseSRT(SRT), { fps: meta.fps });
   const seq = []; for (let f = 0; f < video.count; f++) { const a = analyse(video.frame(f)); seq.push(a); }

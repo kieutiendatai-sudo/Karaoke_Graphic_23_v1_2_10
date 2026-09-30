@@ -29,5 +29,17 @@
     var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
     return '#' + h.toUpperCase();
   }
-  return { expandSrtInputs: expandSrtInputs, normalizeHex: normalizeHex };
+
+  /* Runs task(i) for i in [0, count) with at most `workers` in flight, starting in order; stops starting new ones once isStopped() is true. */
+  function runPool(count, workers, task, isStopped) {
+    var next = 0;
+    function worker() {
+      if (next >= count || (isStopped && isStopped())) return Promise.resolve();
+      return Promise.resolve(task(next++)).then(worker);
+    }
+    var pool = [], w;
+    for (w = 0; w < Math.max(1, Math.min(count, workers)); w++) pool.push(worker());
+    return Promise.all(pool);
+  }
+  return { expandSrtInputs: expandSrtInputs, normalizeHex: normalizeHex, runPool: runPool };
 }));

@@ -60,3 +60,10 @@ node tests/overlay/run-all.js            # KG_FFMPEG=<đường dẫn ffmpeg> n�
 ```
 Gồm test timing/ASS/tham số FFmpeg, render thật (alpha, màu, viền không tối, mỗi từ đổi màu đúng frame, vị trí ổn định,
 căn lề, hủy, lỗi), host với DOM giả, cấu trúc manifest và test lõi SRT/timing.
+
+## Tốc độ render
+
+- FFmpeg chỉ dựng **một khung hình cho mỗi đoạn** (đầu/cuối từng từ, từng cue) rồi lặp lại các khung giống nhau; chữ chỉ đổi ở các mốc đó.
+- ProRes dùng lượng tử cố định (`-qscale 2`, PSNR ≈ 65 dB so với mặc định của `prores_ks`) thay vì rate control mặc định (chậm hơn ~5 lần).
+- Mẫu đo (4 nhân, SRT 304 s, 30 fps): 82,8 s → 22,9 s. Hai file chạy song song: 38,3 s cho cả hai (so với 45,8 s tuần tự).
+- Ô **Số file render song song** chỉ có lợi khi máy còn dư nhân CPU.

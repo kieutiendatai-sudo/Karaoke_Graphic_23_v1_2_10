@@ -5,11 +5,11 @@
   var $ = function (id) { return document.getElementById(id); };
   var hasNode = typeof require === 'function' && typeof process !== 'undefined';
   var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null, Files = null, lastMetaSrt = null;
-  var logs = [], lastMeta = null, cancel = null, seqInfo = null;
+  var logs = [], lastMeta = null, cancels = [], stopAll = false, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
     textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadding: 12, anchorX: 50, yPercent: 85,
     canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
-    insertTrack: 2, insertOffset: 0, insertIntoTimeline: true };
+    parallel: 2, insertTrack: 2, insertOffset: 0, insertIntoTimeline: true };
   var FIELDS = Object.keys(DEFAULTS), COLORS = ['textColor', 'highlightColor', 'outlineColor', 'bgColor'];
 
   function extensionRoot() {
@@ -61,7 +61,7 @@
     return function () {
       save(); busy(true); $('progress').value = 0;
       Promise.resolve().then(fn).catch(function (e) { log((e && e.cancelled ? 'Đã dừng: ' : 'LỖI: ') + (e && e.message || e)); })
-        .then(function () { cancel = null; busy(false); });
+        .then(function () { cancels = []; busy(false); });
     };
   }
   function sequenceInfo() {
@@ -112,32 +112,34 @@
     if (errors.length) throw new Error(errors.join(' '));
     if (preview) files = files.slice(0, 1);
     var ffmpeg = Job.resolveFfmpeg(s.ffmpegDir, extensionRoot()), failed = [], done = 0;
-    if (files.length > 1) log('Render tuần tự ' + files.length + ' file SRT' + (s.outputDir ? ' vào ' + s.outputDir : ' (lưu cạnh từng file SRT)') + '.');
+    var workers = Math.max(1, Math.min(files.length, Math.floor(s.parallel) || 1)), progress = files.map(function () { return 0; }), stopped = null;
+    stopAll = false; cancels = [];
+    if (files.length > 1) log('Render ' + files.length + ' file SRT (' + workers + ' luồng song song)' + (s.outputDir ? ' vào ' + s.outputDir : ' (lưu cạnh từng file SRT)') + '.');
     return resolveFrame(s).then(function (frame) {
       function one(i) {
-        if (i >= files.length) return Promise.resolve();
         var srt = files[i], tag = files.length > 1 ? '[' + (i + 1) + '/' + files.length + '] ' + path.basename(srt) + ': ' : '';
         return Promise.resolve().then(function () {
-          var srtText = fs.readFileSync(srt, 'utf8');
+          var srtText = fs.readFileSync(srt, 'utf8'), token = Job.makeCancelToken();
+          cancels.push(token);
           return warnWidths(s, srtText, frame).then(function () {
-            cancel = Job.makeCancelToken();
             return Job.renderOverlay({ ffmpeg: ffmpeg, srtText: srtText, outputDir: outDirFor(s, srt), baseName: path.basename(srt).replace(/\.[^.]+$/, ''),
-              fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: cancel,
+              fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: token,
               window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
               style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
                 outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadding: s.bgPadding, anchorX: s.anchorX, yPercent: s.yPercent },
-              onLog: function (t) { log(tag + t); }, onProgress: function (p) { $('progress').value = (i + p) / files.length; } });
+              onLog: function (t) { log(tag + t); },
+              onProgress: function (p) { progress[i] = p; $('progress').value = progress.reduce(function (a, b) { return a + b; }, 0) / files.length; } });
           });
         }).then(function (meta) {
-          lastMeta = meta; lastMetaSrt = srt; done++;
+          progress[i] = 1; lastMeta = meta; lastMetaSrt = srt; done++;
           log(tag + (meta.skipped ? 'Đã có sẵn: ' : preview ? 'Xem thử xong: ' : 'Render xong: ') + meta.output);
           log(tag + meta.canvas.w + 'x' + meta.canvas.h + ' · ' + meta.words + ' từ · bắt đầu ' + meta.startSeconds.toFixed(3) + ' s · dài ' + meta.durationSeconds.toFixed(2) + ' s');
         }, function (e) {
-          if (e && e.cancelled) throw e;
+          if (e && e.cancelled) { stopped = e; return; }
           failed.push(path.basename(srt)); log(tag + 'LỖI: ' + (e && e.message || e));
-        }).then(function () { return one(i + 1); });
+        });
       }
-      return one(0);
+      return Files.runPool(files.length, workers, one, function () { return stopped || stopAll; }).then(function () { if (stopped || stopAll) throw stopped || { cancelled: true, message: 'đã dừng lô render.' }; });
     }).then(function () {
       if (files.length > 1) log('Xong lô: ' + done + '/' + files.length + ' file' + (failed.length ? '; lỗi: ' + failed.join(', ') : '') + '.');
       if (failed.length && !done) throw new Error('Tất cả file đều lỗi.');
@@ -227,7 +229,8 @@
   $('preview').addEventListener('click', guard(function () { return render(true); }));
   $('render').addEventListener('click', guard(function () { return render(false); }));
   $('import').addEventListener('click', guard(importResult));
-  $('stop').addEventListener('click', function () { if (cancel) { cancel.cancel(); log('Đã gửi lệnh dừng.'); } });
+  $('stop').addEventListener('click', function () { stopAll = true;
+    if (cancels.length) { cancels.forEach(function (t) { t.cancel(); }); log('Đã gửi lệnh dừng.'); } });
   $('openFolder').addEventListener('click', function () {
     var s = read(); if (!s.outputDir) return log('Chưa chọn thư mục kết quả.');
     require('child_process').spawn(process.platform === 'win32' ? 'explorer' : 'open', [s.outputDir], { detached: true, stdio: 'ignore' }).unref();

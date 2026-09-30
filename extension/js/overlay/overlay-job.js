@@ -115,10 +115,15 @@ async function renderOverlay(opts) {
     fs.writeFileSync(path.join(work, 'karaoke.ass'), Ass.buildAss(plan, assStyle), 'utf8');
     fs.writeFileSync(path.join(work, 'matte.ass'), Ass.buildAss(plan, assStyle, { matte: true }), 'utf8');
     try { fs.unlinkSync(partialPath); } catch (e) { /* none */ }
-    const args = Args.overlayArgs({ fps: opts.fps, width: opts.width, height: opts.height, durationSeconds: plan.durationSeconds, codec, alphaBits, output: partialPath });
+    // one still frame per segment instead of every output frame (the text only changes at word/cue boundaries)
+    await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height, '-frames:v', '1', '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-enc_time_base', '1:1000000', '-f', 'nut', 'black.nut'], { cwd: work, cancel: opts.cancel });
+    fs.writeFileSync(path.join(work, 'segments.txt'), Args.segmentList(plan, 'black.nut'), 'utf8');
+    const args = Args.overlayArgs({ fps: opts.fps, width: opts.width, height: opts.height, durationSeconds: plan.durationSeconds, codec, alphaBits, output: partialPath,
+      segments: plan.frames });
     fs.writeFileSync(path.join(work, 'ffmpeg_args.json'), JSON.stringify(args, null, 1));
     log('Render overlay ' + opts.width + 'x' + opts.height + ', ' + plan.durationSeconds.toFixed(2) + 's, ' + plan.words + ' từ, ' + codec + '.');
-    plan.warnings.forEach(w => log('Cảnh báo: ' + w));
+    plan.warnings.slice(0, 3).forEach(w => log('Cảnh báo: ' + w));
+    if (plan.warnings.length > 3) log('Cảnh báo: còn ' + (plan.warnings.length - 3) + ' cảnh báo tương tự (xem file .json).');
     await run(opts.ffmpeg, args, { cwd: work, cancel: opts.cancel,
       onProgress: s => opts.onProgress && opts.onProgress(Math.min(0.999, s / plan.durationSeconds)) });
     if (!fs.existsSync(partialPath) || fs.statSync(partialPath).size === 0) throw new Error('FFmpeg không tạo được file đầu ra.');

@@ -86,7 +86,7 @@ test('matte ASS: identical geometry/timing, every colour white', () => {
 test('ffmpeg args: two inputs, alphamerge + unpremultiply, ProRes 4444 with alpha, BT.709, no shell text', () => {
   const a = Args.overlayArgs({ fps: { num: 30000, den: 1001 }, width: 1280, height: 180, durationSeconds: 5.5, output: 'out.partial.mov' });
   const graph = a[a.indexOf('-filter_complex') + 1];
-  assert.equal(a.filter(x => x === '-i').length, 2);
+  assert.equal(a.filter(x => x === '-i').length, 1);
   assert.ok(/alphamerge,format=gbrap,unpremultiply=inplace=1/.test(graph));
   assert.ok(a.includes('prores_ks') && a.includes('4444') && a.includes('yuva444p10le') && a.includes('bt709'));
   assert.equal(a[a.indexOf('-i') + 1], 'color=c=black:s=1280x180:r=30000/1001:d=5.500000');
