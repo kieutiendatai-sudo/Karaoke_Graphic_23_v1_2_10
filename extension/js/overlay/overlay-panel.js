@@ -4,7 +4,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var hasNode = typeof require === 'function' && typeof process !== 'undefined';
-  var Job = null, fs = null, path = null, Plan = null, Core = null;
+  var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null;
   var logs = [], lastMeta = null, cancel = null, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
     textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, anchorX: 50, yPercent: 85,
@@ -142,6 +142,8 @@
       Job = require(path.join(root, 'js', 'overlay', 'overlay-job.js'));
       Plan = require(path.join(root, 'js', 'overlay', 'overlay-plan.js'));
       Core = require(path.join(root, 'js', 'core.js'));
+      FontScan = require(path.join(root, 'js', 'overlay', 'font-scan.js'));
+      FontInfo = require(path.join(root, 'js', 'overlay', 'font-info.js'));
     } catch (e) { hasNode = false; log('Không nạp được mô-đun: ' + e.message); }
   }
   $('env').className = 'notice' + (hasNode ? ' ok' : '');
@@ -155,6 +157,18 @@
       log(r.ok ? 'Đủ bộ lọc/encoder cần thiết (libass, alphamerge, unpremultiply, prores_ks).' : 'THIẾU: ' + r.missing.join(', '));
     });
   }));
+  function scanSystemFonts() {
+    var sel = $('systemFont'), t = Date.now();
+    var list = FontScan.scanFonts({ fs: fs, path: path, readFontInfo: FontInfo.readFontInfo, platform: process.platform, env: process.env, home: process.env.HOME || process.env.USERPROFILE });
+    sel.innerHTML = '<option value="">— chọn font (' + list.length + ') —</option>';
+    list.forEach(function (f) {
+      var o = document.createElement('option'); o.value = f.file; o.textContent = f.family + (f.style && f.style !== 'Regular' ? ' — ' + f.style : ''); sel.appendChild(o);
+    });
+    var cur = $('fontFile').value; if (cur) sel.value = cur;
+    log('Đã quét ' + list.length + ' font hệ thống (' + (Date.now() - t) + ' ms).');
+  }
+  $('scanFonts').addEventListener('click', function () { try { scanSystemFonts(); } catch (e) { log('LỖI quét font: ' + e.message); } });
+  $('systemFont').addEventListener('change', function () { if (this.value) { $('fontFile').value = this.value; save(); } });
   $('preview').addEventListener('click', guard(function () { return render(true); }));
   $('render').addEventListener('click', guard(function () { return render(false); }));
   $('import').addEventListener('click', guard(importResult));
