@@ -1,5 +1,5 @@
 'use strict';
-// Mocked Premiere DOM: one import, one clip, no Graphics and no keyframes.
+// Mocked Premiere DOM: files go into the Project with one importFiles call; sequences, Graphics and keyframes are never touched.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const { test } = require('./helper');
@@ -9,53 +9,46 @@ const collection = a => Object.assign(a, { numItems: a.length });
 class Time { constructor() { this.seconds = 0; } }
 
 function setup(options = {}) {
-  const calls = { imports: [], overwrites: [], setValues: [] };
-  const motion = { matchName: 'AE.ADBE Motion', displayName: 'Motion', properties: collection(['Position', 'Scale', 'Rotation'].map(n => ({
-    displayName: n, setValue(v, ui) { calls.setValues.push([n, v, ui]); return 0; } }))) };
+  const calls = { imports: [], sequenceTouched: 0 };
   const project = { rootItem: { type: 2, children: collection([]) }, getInsertionBin() { return this.rootItem; },
     importFiles(files, suppress, bin) {
       if (options.importFails) return false;
-      calls.imports.push(files);
-      bin.children.push({ type: 1, name: path.basename(files[0]), nodeId: 'N1', getMediaPath: () => files[0] });
+      calls.imports.push(files.slice());
+      files.forEach((f, i) => { if (!(options.dropFile && i === 0)) bin.children.push({ type: 1, name: path.basename(f), nodeId: 'N' + bin.children.length, getMediaPath: () => f }); });
       bin.children.numItems = bin.children.length; return true; } };
-  const track = { isLocked: () => !!options.locked, clips: collection([]),
-    overwriteClip(item, t) { calls.overwrites.push([item.name, t.seconds]);
-      this.clips.push({ start: { seconds: t.seconds }, projectItem: item, components: collection([motion]) }); this.clips.numItems = this.clips.length; } };
-  project.activeSequence = options.noSequence ? null : { name: 'Seq', timebase: '8475667200', getSettings: () => ({ videoFrameWidth: 1280, videoFrameHeight: 720 }),
-    videoTracks: Object.assign([track, track], { numTracks: 2, numItems: 2 }) };
-  const context = vm.createContext({ app: { version: options.version || '23.6', project }, Time, decodeURIComponent, encodeURIComponent });
+  Object.defineProperty(project, 'activeSequence', { get() { calls.sequenceTouched++; return options.noSequence ? null : { name: 'Seq', timebase: '8475667200',
+    getSettings: () => ({ videoFrameWidth: 1280, videoFrameHeight: 720 }), videoTracks: Object.assign([{}, {}], { numTracks: 2, numItems: 2 }) }; } });
+  const context = vm.createContext({ app: { version: options.version || '23.6', project }, decodeURIComponent, encodeURIComponent });
   vm.runInContext(source, context);
   const call = (fn, arg) => JSON.parse(context.KGO[fn](arg === undefined ? undefined : encodeURIComponent(JSON.stringify(arg))));
   return { call, calls };
 }
-const payload = { file: 'D:/out/001_karaoke.mov', startSeconds: 0.5, trackIndex: 1, position: [0.5, 0.85], scale: 100, insert: true };
+const files = ['D:/out/001_karaoke.mov', 'D:/out/002_karaoke.mov', 'D:/out/003_karaoke.mov'];
 
-test('imports once, overwrites one clip, sets Position/Scale', () => {
-  const { call, calls } = setup(), r = call('importOverlay', payload);
-  assert.equal(r.ok, true); assert.equal(r.value.inserted, true);
-  same(calls.imports, [['D:/out/001_karaoke.mov']]); same(calls.overwrites, [['001_karaoke.mov', 0.5]]);
-  same(calls.setValues.map(v => v[0]), ['Position', 'Scale']); same(calls.setValues[0][1], [0.5, 0.85]); assert.equal(calls.setValues[1][1], 100);
+test('all rendered files are imported into the Project with ONE importFiles call, without touching a sequence', () => {
+  const { call, calls } = setup(), r = call('importFiles', { files });
+  assert.equal(r.ok, true); assert.equal(r.value.imported, 3); assert.equal(r.value.alreadyInProject, 0);
+  same(calls.imports, [files]); assert.equal(calls.sequenceTouched, 0);
 });
 
-test('a file already in the project is not imported twice', () => {
-  const { call, calls } = setup(); call('importOverlay', payload); call('importOverlay', payload);
-  assert.equal(calls.imports.length, 1);
+test('files already in the project are not imported twice (case/slash-insensitive); a mixed list imports only the new ones', () => {
+  const { call, calls } = setup(); call('importFiles', { files: [files[0]] });
+  const r = call('importFiles', { files: ['d:\\OUT\\001_karaoke.mov', files[1], files[2]] });
+  assert.equal(r.value.imported, 2); assert.equal(r.value.alreadyInProject, 1);
+  same(calls.imports, [[files[0]], [files[1], files[2]]]);
+  const again = call('importFiles', { files }); assert.equal(again.value.imported, 0); assert.equal(calls.imports.length, 2);   // nothing left: no call
 });
 
-test('insert=false only imports', () => {
-  const { call, calls } = setup(), r = call('importOverlay', Object.assign({}, payload, { insert: false }));
-  assert.equal(r.value.inserted, false); assert.equal(calls.overwrites.length, 0);
+test('errors: empty list, refused import, file missing after import, old Premiere', () => {
+  assert.match(setup().call('importFiles', { files: [] }).error, /Không có file/);
+  assert.match(setup({ importFails: true }).call('importFiles', { files }).error, /không nhập được 3 file/);
+  assert.match(setup({ dropFile: true }).call('importFiles', { files }).error, /không thấy trong Project: D:\/out\/001/);
+  assert.match(setup({ version: '22.1' }).call('importFiles', { files }).error, /Premiere Pro 23/);
 });
 
-test('errors are reported', () => {
-  assert.match(setup({ locked: true }).call('importOverlay', payload).error, /khóa/);
-  assert.match(setup().call('importOverlay', Object.assign({}, payload, { trackIndex: 9 })).error, /không tồn tại/);
-  assert.match(setup({ noSequence: true }).call('importOverlay', payload).error, /sequence/);
-  assert.match(setup({ importFails: true }).call('importOverlay', payload).error, /không nhập được/);
+test('info still needs an open sequence and returns the exact timebase ticks used for the frame rate', () => {
+  assert.match(setup({ noSequence: true }).call('info').error, /sequence/);
   assert.match(setup({ version: '22.1' }).call('info').error, /Premiere Pro 23/);
-});
-
-test('info returns the exact timebase ticks used for the frame rate', () => {
   const r = setup().call('info');
   assert.equal(r.value.timebase, '8475667200'); assert.equal(r.value.width, 1280); assert.equal(r.value.videoTracks, 2);
 });

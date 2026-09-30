@@ -22,8 +22,7 @@ từng nét); từ trước/sau giữ màu thường.
 4. **FFmpeg (`js/overlay/overlay-job.js`, Node):** chạy `ffmpeg` như tiến trình ngoài (không qua shell), đọc tiến độ từ
    `-progress`, có nút Dừng (SIGTERM rồi SIGKILL sau 2 s), ghi `.partial.mov` rồi đổi tên sau khi FFmpeg giải mã lại được
    toàn bộ file. FFmpeg chỉ vẽ dải phụ đề, **không** đọc hay mã hóa video gốc.
-5. **Premiere (`jsx/overlay-host.jsx`):** nhập **một** file, `overwriteClip` **một** clip lên track V đã chọn tại thời điểm
-   cue đầu tiên, đặt `Position` = `[0,5 ; Y%]` và `Scale` = 100.
+5. **Premiere (`jsx/overlay-host.jsx`):** nhập tất cả file overlay đã render vào **Project** bằng một lệnh `importFiles` (file đã có trong Project thì bỏ qua). Panel không chèn clip vào sequence; bạn tự kéo overlay vào sequence cần dùng.
 
 Độ dài overlay lấy từ timing SRT: từ frame đầu của cue đầu đến frame cuối của cue cuối. Frame rate lấy chính xác từ
 `sequence.timebase` (29,97 → 30000/1001).
@@ -46,7 +45,7 @@ SRT/kiểu chữ sẽ bỏ qua (cùng `identity`); đổi bất kỳ tùy chọn
 
 ## Giới hạn / chưa kiểm chứng trong Premiere thật
 
-- Chưa chạy trong Premiere Pro 23: nạp panel, Node trong CEP, `importFiles`/`overwriteClip`, đặt `Position`/`Scale`, và việc
+- Chưa chạy trong Premiere Pro 23: nạp panel, Node trong CEP, `importFiles` (nhập hàng loạt vào Project), và việc
   Premiere đọc ProRes 4444 alpha + màu BT.709 như kỳ vọng. Test dùng FFmpeg thật và DOM giả.
 - Một dòng: chữ dài hơn khung bị cắt; panel cảnh báo ước tính bằng số đo canvas.
 - libass chọn font theo tên họ; nếu máy đã cài font trùng tên, kết quả có thể dùng font đã cài thay vì file chọn.

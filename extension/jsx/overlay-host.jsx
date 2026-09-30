@@ -1,5 +1,5 @@
 /* Karaoke Overlay host (Premiere Pro 23 ExtendScript; no QE, no project save).
-   Imports ONE overlay file and puts ONE clip on the timeline. It never creates Graphics or keyframes. */
+   Imports rendered overlay files into the Project panel (one importFiles call). It never touches sequences, Graphics or keyframes. */
 if (typeof KGO === 'undefined') {
 var KGO = (function () {
     var VERSION = '0.1.0';
@@ -47,49 +47,22 @@ var KGO = (function () {
                  height: settings.videoFrameHeight || s.frameSizeVertical, timebase: String(s.timebase),
                  videoTracks: s.videoTracks.numTracks, version: String(app.version) };
     }
-    function setMotion(clip, position, scale) {
-        var motion = null, i;
-        for (i = 0; i < clip.components.numItems; i++) {
-            var c = clip.components[i];
-            if (String(c.matchName).indexOf('Motion') >= 0 || String(c.displayName) === 'Motion') { motion = c; break; }
+    /* p: {files: [absolute paths]}. One importFiles call for everything not yet in the project. */
+    function importFiles(p) {
+        if (parseInt(app.version, 10) < 23) fail('Cần Premiere Pro 23 trở lên.');
+        if (!p || !p.files || !p.files.length) fail('Không có file overlay nào để nhập.');
+        var todo = [], existing = 0, i;
+        for (i = 0; i < p.files.length; i++) {
+            if (findByPath(app.project.rootItem, p.files[i])) existing++; else todo.push(p.files[i]);
         }
-        if (!motion) fail('Không tìm thấy hiệu ứng Motion trên clip overlay.');
-        var done = { position: false, scale: false };
-        for (i = 0; i < motion.properties.numItems; i++) {
-            var p = motion.properties[i], name = String(p.displayName);
-            if (name === 'Position') { p.setValue(position, true); done.position = true; }
-            else if (name === 'Scale') { p.setValue(scale, true); done.scale = true; }
-        }
-        if (!done.position || !done.scale) fail('Không đặt được Position/Scale (giao diện Premiere cần là tiếng Anh).');
-    }
-    /* p: {file, startSeconds, trackIndex (0-based), position:[x,y] (0..1), scale, insert:boolean} */
-    function importOverlay(p) {
-        var s = sequence();
-        if (!findByPath(app.project.rootItem, p.file)) {
-            if (!app.project.importFiles([p.file], true, app.project.getInsertionBin(), false)) fail('Premiere không nhập được file: ' + p.file);
-        }
-        var item = findByPath(app.project.rootItem, p.file);
-        if (!item) fail('Đã nhập nhưng không tìm thấy mục trong Project: ' + p.file);
-        var result = { imported: true, inserted: false, projectItem: String(item.name) };
-        if (!p.insert) return result;
-        if (p.trackIndex < 0 || p.trackIndex >= s.videoTracks.numTracks) fail('Track video V' + (p.trackIndex + 1) + ' không tồn tại.');
-        var track = s.videoTracks[p.trackIndex];
-        if (typeof track.isLocked === 'function' && track.isLocked()) fail('Track V' + (p.trackIndex + 1) + ' đang khóa.');
-        var t = new Time(); t.seconds = p.startSeconds;
-        track.overwriteClip(item, t);
-        var clip = null, i;
-        for (i = 0; i < track.clips.numItems; i++) {
-            var c = track.clips[i];
-            if (Math.abs(c.start.seconds - p.startSeconds) < 0.05 && String(c.projectItem.nodeId) === String(item.nodeId)) { clip = c; break; }
-        }
-        if (!clip) fail('Đã chèn nhưng không tìm thấy clip mới trên V' + (p.trackIndex + 1) + '.');
-        setMotion(clip, p.position, p.scale);
-        result.inserted = true;
-        result.start = clip.start.seconds;
-        return result;
+        if (todo.length && !app.project.importFiles(todo, true, app.project.getInsertionBin(), false)) fail('Premiere không nhập được ' + todo.length + ' file overlay.');
+        var missing = [];
+        for (i = 0; i < todo.length; i++) if (!findByPath(app.project.rootItem, todo[i])) missing.push(todo[i]);
+        if (missing.length) fail('Đã nhập nhưng không thấy trong Project: ' + missing.join(', '));
+        return { imported: todo.length, alreadyInProject: existing };
     }
     return { version: VERSION,
         info: function () { return reply(info); },
-        importOverlay: function (text) { return reply(function () { return importOverlay(eval('(' + decodeURIComponent(text) + ')')); }); } };
+        importFiles: function (text) { return reply(function () { return importFiles(eval('(' + decodeURIComponent(text) + ')')); }); } };
 }());
 }

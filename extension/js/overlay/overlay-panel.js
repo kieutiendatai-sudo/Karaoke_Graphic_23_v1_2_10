@@ -4,12 +4,12 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var hasNode = typeof require === 'function' && typeof process !== 'undefined';
-  var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null, Files = null, lastMetaSrt = null;
-  var logs = [], lastMeta = null, cancels = [], stopAll = false, seqInfo = null;
+  var Job = null, fs = null, path = null, Plan = null, Core = null, FontScan = null, FontInfo = null, Files = null;
+  var logs = [], rendered = {}, cancels = [], stopAll = false, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
     textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadX: 24, bgPadY: 12, bgRadius: 16, twoRows: false, lineSpacing: 85, anchorX: 50, yPercent: 85,
     canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
-    parallel: 2, insertTrack: 2, insertOffset: 0, insertIntoTimeline: true };
+    parallel: 2, autoImport: true };
   var FIELDS = Object.keys(DEFAULTS), COLORS = ['textColor', 'highlightColor', 'outlineColor', 'bgColor'];
 
   function extensionRoot() {
@@ -98,13 +98,6 @@
     r.errors.forEach(function (e) { log('Cảnh báo: ' + e); });
     return r.files;
   }
-  function refreshImportList() {
-    if (!Files) return;
-    var sel = $('importSrt'), keep = sel.value, files = Files.expandSrtInputs(fs, path, $('srtPath').value).files;
-    sel.innerHTML = '';
-    files.forEach(function (f) { var o = document.createElement('option'); o.value = f; o.textContent = path.basename(f); sel.appendChild(o); });
-    if (files.indexOf(keep) >= 0) sel.value = keep;
-  }
   function outDirFor(s, srt) { return s.outputDir || path.dirname(srt); }
   function render(preview) {
     var s = read(), errors = [], files = listSrts();
@@ -134,7 +127,7 @@
               onProgress: function (p) { progress[i] = p; $('progress').value = progress.reduce(function (a, b) { return a + b; }, 0) / files.length; } });
           });
         }).then(function (meta) {
-          progress[i] = 1; lastMeta = meta; lastMetaSrt = srt; done++;
+          progress[i] = 1; if (!preview) rendered[srt] = meta.output; done++;
           log(tag + (meta.skipped ? 'Đã có sẵn: ' : preview ? 'Xem thử xong: ' : 'Render xong: ') + meta.output);
           log(tag + meta.canvas.w + 'x' + meta.canvas.h + ' · ' + meta.words + ' từ · bắt đầu ' + meta.startSeconds.toFixed(3) + ' s · dài ' + meta.durationSeconds.toFixed(2) + ' s');
         }, function (e) {
@@ -148,19 +141,23 @@
       if (failed.length && !done) throw new Error('Tất cả file đều lỗi.');
     });
   }
-  function importResult() {
-    var s = read(), meta = null, srt = $('importSrt').value;
-    if (srt && lastMeta && lastMetaSrt === srt) meta = lastMeta;
-    else if (srt) {
-      var sidecar = path.join(outDirFor(s, srt), path.basename(srt).replace(/\.[^.]+$/, '') + '_karaoke.json');
-      if (fs.existsSync(sidecar)) meta = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
-    }
-    if (!meta) return Promise.reject(new Error('Chưa có kết quả. Bấm "Render overlay" trước.'));
-    var start = meta.startSeconds + (s.insertOffset || 0);
-    log('Nhập vào Premiere: ' + meta.output + (s.insertIntoTimeline ? ' → V' + s.insertTrack + ' tại ' + start.toFixed(3) + ' s' : ' (chỉ Project)'));
-    return rpc('importOverlay', { file: meta.output, startSeconds: start, trackIndex: s.insertTrack - 1, position: meta.premiere.position,
-      scale: meta.premiere.scale, insert: !!s.insertIntoTimeline }).then(function (r) {
-      log('Xong. Đã nhập: ' + r.projectItem + (r.inserted ? '; đã chèn clip tại ' + r.start.toFixed(3) + ' s.' : '.'));
+  /* Every SRT in the list -> its rendered overlay (this session, or the .json beside a previous render); one call imports them all. */
+  function importAll() {
+    var s = read(), files = [], missing = [];
+    listSrts().forEach(function (srt) {
+      var out = rendered[srt];
+      if (!out) {
+        var sidecar = path.join(outDirFor(s, srt), path.basename(srt).replace(/\.[^.]+$/, '') + '_karaoke.json');
+        try { if (fs.existsSync(sidecar)) out = JSON.parse(fs.readFileSync(sidecar, 'utf8')).output; } catch (e) { /* unreadable: treated as missing */ }
+      }
+      if (out && fs.existsSync(out)) files.push(out); else missing.push(path.basename(srt));
+    });
+    if (missing.length) log('Chưa có overlay cho: ' + missing.join(', ') + ' (bỏ qua).');
+    if (!files.length) return Promise.reject(new Error('Chưa có overlay nào. Bấm "Render overlay" trước.'));
+    log('Nhập ' + files.length + ' overlay vào Project…');
+    return rpc('importFiles', { files: files }).then(function (r) {
+      log('Xong: nhập mới ' + r.imported + ' file' + (r.alreadyInProject ? ', ' + r.alreadyInProject + ' file đã có sẵn trong Project' : '') + '.');
+      if (seqInfo) log('Khi kéo vào sequence, đặt Position = ' + Math.round(seqInfo.width / 2) + ' ; ' + Math.round(seqInfo.height * s.yPercent / 100) + ' (Scale 100).');
     });
   }
   function pick(id, kind, ext) {
@@ -177,7 +174,6 @@
     $(k).addEventListener('input', swatches);
     $(k).addEventListener('change', function () { var h = Files && Files.normalizeHex($(k).value); if (h) $(k).value = h; swatches(); save(); });
   });
-  $('srtPath').addEventListener('change', refreshImportList);
   load();
   if (hasNode) {
     try {
@@ -193,7 +189,7 @@
   }
   $('env').className = 'notice' + (hasNode ? ' ok' : '');
   $('env').textContent = hasNode ? 'Node.js sẵn sàng: panel tự chạy FFmpeg.' : 'Node.js KHÔNG khả dụng trong panel này: không thể chạy FFmpeg. Kiểm tra manifest (--enable-nodejs --mixed-context).';
-  swatches(); refreshImportList();
+  swatches();
   busy(false); $('stop').disabled = true;
   if (!hasNode) { busy(true); $('stop').disabled = true; return; }
   $('checkFfmpeg').addEventListener('click', guard(function () {
@@ -217,7 +213,7 @@
   $('systemFont').addEventListener('change', function () { if (this.value) { $('fontFile').value = this.value; save(); } });
   function appendSrt(paths) {
     var box = $('srtPath'), cur = box.value.trim();
-    box.value = (cur ? cur + '\n' : '') + paths.join('\n'); save(); refreshImportList();
+    box.value = (cur ? cur + '\n' : '') + paths.join('\n'); save();
   }
   $('addSrtFiles').addEventListener('click', function () {
     var f = window.cep && window.cep.fs; if (!f) return;
@@ -230,8 +226,10 @@
     if (r.err === 0 && r.data && r.data.length) appendSrt(r.data);
   });
   $('preview').addEventListener('click', guard(function () { return render(true); }));
-  $('render').addEventListener('click', guard(function () { return render(false); }));
-  $('import').addEventListener('click', guard(importResult));
+  $('render').addEventListener('click', guard(function () {
+    return render(false).then(function () { return read().autoImport ? importAll() : null; });
+  }));
+  $('import').addEventListener('click', guard(importAll));
   $('stop').addEventListener('click', function () { stopAll = true;
     if (cancels.length) { cancels.forEach(function (t) { t.cancel(); }); log('Đã gửi lệnh dừng.'); } });
   $('openFolder').addEventListener('click', function () {
