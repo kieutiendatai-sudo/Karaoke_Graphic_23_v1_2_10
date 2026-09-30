@@ -123,6 +123,7 @@ async function renderOverlay(opts) {
         '-vf', "ass=filename='measure.ass':fontsdir='fonts':shaping=simple,format=gray", '-frames:v', String(m.frames), '-f', 'rawvideo', '-'],
         { cwd: work, cancel: opts.cancel, onStdout: c => grab.push(c) });
       boxes = Measure.toRelative(rows, grab.boxes, m);
+      if (boxes.blank.length) log('Bỏ qua nền của ' + boxes.blank.length + ' dòng không có chữ nhìn thấy (ký tự vô hình).');
     }
     const stats = {};
     fs.writeFileSync(path.join(work, 'karaoke.ass'), Ass.buildAss(plan, assStyle, { boxes, stats }), 'utf8');

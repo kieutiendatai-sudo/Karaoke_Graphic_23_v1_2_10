@@ -88,11 +88,13 @@
       var b = options.boxes, n = span.rows.length, l = Infinity, r = -Infinity, t = Infinity, bt = -Infinity;
       span.rows.forEach(function (row, i) {
         var m = b.rel[row];
-        if (!m) throw new Error('Thiếu số đo cho dòng: ' + row);
+        if (m === undefined) throw new Error('Thiếu số đo cho dòng: ' + row);
+        if (m === null) return;                                       // row with nothing visible
         var cy = rowY(n, i);
         l = Math.min(l, x + m.l); r = Math.max(r, x + m.r);
         t = Math.min(t, cy + Math.min(m.t, b.ref.t)); bt = Math.max(bt, cy + Math.max(m.b, b.ref.b));
       });
+      if (l === Infinity) return null;                                // no visible row in this cue: no box
       l -= style.bgPadX == null ? 24 : style.bgPadX; r += style.bgPadX == null ? 24 : style.bgPadX;
       t -= style.bgPadY == null ? 12 : style.bgPadY; bt += style.bgPadY == null ? 12 : style.bgPadY;
       if (options.stats && (l < 0 || t < 0 || r > W || bt > H)) options.stats.clippedBoxes = (options.stats.clippedBoxes || 0) + 1;
@@ -101,7 +103,7 @@
     }
     plan.events.forEach(function (e) {
       var rows = e.rows || [e.line], t0 = time(e.startFrame), t1 = time(e.endFrame);
-      if (box && !boxDone[e.cue]) { boxDone[e.cue] = 1; lines.push(boxLine(e.cue, cueSpan[e.cue])); }
+      if (box && !boxDone[e.cue]) { boxDone[e.cue] = 1; var bl = boxLine(e.cue, cueSpan[e.cue]); if (bl) lines.push(bl); }
       rows.forEach(function (row, i) {
         var body = i === (e.row || 0)
           ? escapeText(row.slice(0, e.startChar)) + '{\\1c' + high + '}' + escapeText(row.slice(e.startChar, e.endChar)) + '{\\1c' + text + '}' + escapeText(row.slice(e.endChar))

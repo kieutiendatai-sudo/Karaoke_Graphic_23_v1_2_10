@@ -248,3 +248,15 @@ test('two rows: both rows visible, the highlight goes through row 1 then row 2',
   assert.ok(first.hlTop > 20 && first.hlBot === 0, 'first word highlights row 1 only: ' + JSON.stringify(first));
   assert.ok(last.hlBot > 20 && last.hlTop === 0, 'last word highlights row 2 only: ' + JSON.stringify(last));
 });
+
+test('background: a cue with only invisible characters does not fail the batch and gets no box', async () => {
+  const srt = '1\n00:00:00,500 --> 00:00:01,500\n​\n\n2\n00:00:02,000 --> 00:00:03,000\nVisible words here\n';
+  const logs = [];
+  const meta = await Job.renderOverlay(Object.assign({}, base, { srtText: srt, outputDir: path.join(tmp, 'zw'), baseName: 'zw', fps: { num: 30, den: 1 }, onLog: t => logs.push(t),
+    style: Object.assign({}, base.style, { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadX: 20, bgPadY: 10, bgRadius: 8 }) }));
+  const video = decode(meta.output);
+  const covered = f => { let n = 0; const fr = video.frame(f); for (let i = 3; i < fr.length; i += 4) if (fr[i] > 0) n++; return n; };
+  assert.equal(covered(5), 0, 'invisible cue must draw nothing');
+  assert.ok(covered(Math.round(2.3 * 30) - Math.round(0.5 * 30)) > 3000, 'the visible cue keeps its box');
+  assert.ok(logs.some(l => /không có chữ nhìn thấy/.test(l)));
+});

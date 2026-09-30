@@ -46,13 +46,15 @@ function frameBoxes(width, height) {
 /* Turns per-frame ink boxes into extents relative to the row anchor. */
 function toRelative(rows, boxes, anchor) {
   const rel = {}, ref = boxes[0];
+  if (boxes.length < rows.length + 1) throw new Error('FFmpeg trả thiếu khung khi đo chữ (' + boxes.length + '/' + (rows.length + 1) + ').');
   if (!ref) throw new Error('FFmpeg không hiển thị chữ khi đo font.');
+  const blank = [];
   rows.forEach((row, i) => {
     const m = boxes[i + 1];
-    if (!m) throw new Error('Không đo được dòng: ' + row);
+    if (!m) { rel[row] = null; blank.push(row); return; }            // nothing visible (invisible characters, glyph-less text): no box for it
     rel[row] = { l: m.l - anchor.x, r: m.r - anchor.x, t: m.t - anchor.y, b: m.b - anchor.y };
   });
-  return { rel, ref: { t: ref.t - anchor.y, b: ref.b - anchor.y } };
+  return { rel, ref: { t: ref.t - anchor.y, b: ref.b - anchor.y }, blank };
 }
 
 module.exports = { REF_TEXT, buildMeasureAss, frameBoxes, toRelative };
