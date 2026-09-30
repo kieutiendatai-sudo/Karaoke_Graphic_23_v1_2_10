@@ -85,7 +85,9 @@
         document.fonts.add(font);
         var ctx = document.createElement('canvas').getContext('2d');
         ctx.font = (s.bold ? 'bold ' : '') + s.fontSize + 'px KGOverlayFont';
-        var wide = Core.parseSRT(srtText).filter(function (c) { return ctx.measureText(c.text).width > frame.width * 0.98; });
+        var wide = Core.parseSRT(srtText).filter(function (c) {
+          return (s.twoRows && c.lines.length > 1 ? c.lines : [c.text]).some(function (row) { return ctx.measureText(row).width > frame.width * 0.98; });   // two-row mode: each row must fit, not the merged text
+        });
         if (wide.length) log('Cảnh báo: ' + wide.length + ' cue có thể rộng hơn khung (' + frame.width + ' px), ví dụ cue ' + wide[0].id + '. Giảm cỡ chữ hoặc chia cue.');
       }).catch(function () { /* estimate only */ });
     } catch (e) { return Promise.resolve(); }
