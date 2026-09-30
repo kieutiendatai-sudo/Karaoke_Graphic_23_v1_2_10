@@ -11,3 +11,9 @@ pre{background:#161616;padding:6px;height:220px;overflow:auto;white-space:pre-wr
 
 textarea{width:100%;box-sizing:border-box;background:#1a1a1a;color:#eee;border:1px solid #4a4a4a;padding:4px;border-radius:3px;font:inherit;resize:vertical}
 .hex{font-family:monospace;text-transform:uppercase}.sw{flex:0 0 30px;border:1px solid #4a4a4a;border-radius:3px;background:#000}
+
+input[type=checkbox]{width:auto;margin:0}.check{margin:6px 0}.check span{cursor:default;user-select:none}
+fieldset.dep{border:0;margin:0;padding:0;min-width:0}fieldset.dep:disabled{opacity:.4}
+.hint{color:#9a9a9a;font-size:11px;margin:4px 0}
+.grid>*,.row>input,.row>select{min-width:0}.row>input,.row>select{flex:1}.row>button{flex:0 0 auto}body{overflow-x:hidden}
+input,select,textarea{min-width:0;max-width:100%}*{box-sizing:border-box}

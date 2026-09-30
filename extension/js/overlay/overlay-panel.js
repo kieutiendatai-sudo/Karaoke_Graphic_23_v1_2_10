@@ -8,7 +8,7 @@
   var logs = [], rendered = {}, cancels = [], stopAll = false, seqInfo = null;
   var DEFAULTS = { ffmpegDir: '', srtPath: '', outputDir: '', fontFile: '', fontSize: 56, bold: false, align: 'center',
     textColor: '#FFFFFF', highlightColor: '#F7D114', outlineColor: '#000000', outline: 2, shadow: 0, bgEnabled: false, bgColor: '#000000', bgOpacity: 60, bgPadX: 24, bgPadY: 12, bgRadius: 16, twoRows: false, lineSpacing: 85, maxWidthPercent: 90, anchorX: 50, yPercent: 85,
-    canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'prores4444', previewStart: 0, previewLength: 4,
+    canvasHeight: 0, fps: 'auto', width: 0, offset: 0, codec: 'qtrle', previewStart: 0, previewLength: 4,
     parallel: 2, autoImport: true };
   var FIELDS = Object.keys(DEFAULTS), COLORS = ['textColor', 'highlightColor', 'outlineColor', 'bgColor'];
 
@@ -27,6 +27,7 @@
       var el = $(k), v = saved[k] !== undefined ? saved[k] : DEFAULTS[k];
       if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
     });
+    syncDeps();
   }
   function swatches() {
     Array.prototype.forEach.call(document.querySelectorAll('.sw'), function (sw) {
@@ -43,6 +44,37 @@
     return s;
   }
   function save() { try { localStorage.setItem('kg.overlay.settings', JSON.stringify(read())); } catch (e) { /* ignore */ } }
+  var PRESET_SKIP = ['ffmpegDir', 'srtPath', 'outputDir', 'previewStart', 'previewLength'], PRESET_KEY = 'kg.overlay.presets';
+  // Fields that only matter while their checkbox is ticked are disabled (and ignored by the render) otherwise.
+  function syncDeps() {
+    $('rowFields').disabled = !$('twoRows').checked;
+    $('bgFields').disabled = !$('bgEnabled').checked;
+  }
+  function readPresets() {
+    try { var p = JSON.parse(localStorage.getItem(PRESET_KEY) || '{}'); return p && typeof p === 'object' ? p : {}; } catch (e) { return {}; }
+  }
+  function writePresets(p) {
+    try { localStorage.setItem(PRESET_KEY, JSON.stringify(p)); return true; } catch (e) { log('Không lưu được preset: ' + e.message); return false; }
+  }
+  function refreshPresets(select) {
+    var sel = $('presetSelect'), names = Object.keys(readPresets()).sort(function (a, b) { return a.localeCompare(b); });
+    sel.innerHTML = '<option value="">— chọn preset đã lưu (' + names.length + ') —</option>';
+    names.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+    if (select && names.indexOf(select) >= 0) sel.value = select;
+  }
+  function presetValues() {
+    var s = read(), out = {};
+    FIELDS.forEach(function (k) { if (PRESET_SKIP.indexOf(k) < 0) out[k] = s[k]; });
+    return out;
+  }
+  function applyValues(values) {
+    FIELDS.forEach(function (k) {
+      if (PRESET_SKIP.indexOf(k) >= 0 || values[k] === undefined) return;
+      var el = $(k); if (el.type === 'checkbox') el.checked = !!values[k]; else el.value = values[k];
+    });
+    syncDeps(); swatches(); save();
+  }
+
   function busy(v) {
     Array.prototype.forEach.call(document.querySelectorAll('button'), function (b) { b.disabled = v; });
     $('stop').disabled = !v;
@@ -122,7 +154,9 @@
               fps: frame.fps, width: frame.width, height: frame.height, offset: s.offset, codec: s.codec, cancel: token, twoRows: s.twoRows,
               window: preview ? { startSeconds: s.previewStart, lengthSeconds: s.previewLength } : null, force: false,
               style: { fontFile: s.fontFile, fontSize: s.fontSize, bold: s.bold, align: s.align, textColor: s.textColor, highlightColor: s.highlightColor,
-                outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgColor, bgOpacity: s.bgOpacity, bgPadX: s.bgPadX, bgPadY: s.bgPadY, bgRadius: s.bgRadius, lineSpacing: s.lineSpacing, maxWidthPercent: s.maxWidthPercent, anchorX: s.anchorX, yPercent: s.yPercent },
+                outlineColor: s.outlineColor, outline: s.outline, shadow: s.shadow, bgEnabled: s.bgEnabled, bgColor: s.bgEnabled ? s.bgColor : undefined, bgOpacity: s.bgEnabled ? s.bgOpacity : undefined, bgPadX: s.bgEnabled ? s.bgPadX : undefined,
+                bgPadY: s.bgEnabled ? s.bgPadY : undefined, bgRadius: s.bgEnabled ? s.bgRadius : undefined,
+                lineSpacing: s.twoRows ? s.lineSpacing : undefined, maxWidthPercent: s.twoRows ? s.maxWidthPercent : undefined, anchorX: s.anchorX, yPercent: s.yPercent },
               onLog: function (t) { log(tag + t); },
               onProgress: function (p) { progress[i] = p; $('progress').value = progress.reduce(function (a, b) { return a + b; }, 0) / files.length; } });
           });
@@ -170,6 +204,39 @@
     b.addEventListener('click', function () { pick(b.getAttribute('data-pick'), b.getAttribute('data-kind'), b.getAttribute('data-ext')); });
   });
   FIELDS.forEach(function (k) { $(k).addEventListener('change', save); });
+  ['twoRows', 'bgEnabled'].forEach(function (k) { $(k).addEventListener('change', syncDeps); });
+  refreshPresets();
+  $('presetSelect').addEventListener('change', function () {
+    var name = this.value; if (!name) return;
+    var p = readPresets()[name]; if (!p) return;
+    applyValues(p); $('presetName').value = name; log('Đã áp dụng preset "' + name + '".');
+  });
+  $('presetSave').addEventListener('click', function () {
+    var name = $('presetName').value.trim();
+    if (!name) return log('Nhập tên preset trước khi lưu.');
+    var all = readPresets(), existed = !!all[name]; all[name] = presetValues();
+    if (writePresets(all)) { refreshPresets(name); log((existed ? 'Đã cập nhật' : 'Đã lưu') + ' preset "' + name + '".'); }
+  });
+  $('presetDelete').addEventListener('click', function () {
+    var name = $('presetSelect').value; if (!name) return log('Chọn preset cần xóa.');
+    var all = readPresets(); delete all[name];
+    if (writePresets(all)) { refreshPresets(); log('Đã xóa preset "' + name + '".'); }
+  });
+  $('presetExport').addEventListener('click', function () {
+    var f = window.cep && window.cep.fs; if (!f || !fs) return log('Cần chạy trong Premiere để xuất file.');
+    var r = f.showSaveDialogEx('Xuất preset', '', ['json'], 'karaoke-presets.json', 'JSON');
+    if (r.err === 0 && r.data) { try { fs.writeFileSync(r.data, JSON.stringify(readPresets(), null, 1), 'utf8'); log('Đã xuất ' + Object.keys(readPresets()).length + ' preset: ' + r.data); } catch (e) { log('LỖI xuất preset: ' + e.message); } }
+  });
+  $('presetImport').addEventListener('click', function () {
+    var f = window.cep && window.cep.fs; if (!f || !fs) return log('Cần chạy trong Premiere để nhập file.');
+    var r = f.showOpenDialogEx(false, false, 'Nhập preset', '', ['json']);
+    if (r.err !== 0 || !r.data || !r.data.length) return;
+    try {
+      var incoming = JSON.parse(fs.readFileSync(r.data[0], 'utf8')), all = readPresets(), n = 0;
+      Object.keys(incoming).forEach(function (k) { if (incoming[k] && typeof incoming[k] === 'object') { all[k] = incoming[k]; n++; } });
+      if (writePresets(all)) { refreshPresets(); log('Đã nhập ' + n + ' preset từ ' + r.data[0]); }
+    } catch (e) { log('LỖI nhập preset: ' + e.message); }
+  });
   COLORS.forEach(function (k) {
     $(k).addEventListener('input', swatches);
     $(k).addEventListener('change', function () { var h = Files && Files.normalizeHex($(k).value); if (h) $(k).value = h; swatches(); save(); });
