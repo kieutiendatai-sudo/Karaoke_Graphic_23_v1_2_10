@@ -79,6 +79,7 @@
     });
   }
   function warnWidths(s, srtText, frame) {
+    if (s.twoRows) return Promise.resolve();                       // two-row mode wraps long cues itself and reports what still does not fit
     try {
       var font = new FontFace('KGOverlayFont', 'url("file:///' + s.fontFile.replace(/\\/g, '/').replace(/^\//, '') + '")');
       return font.load().then(function () {

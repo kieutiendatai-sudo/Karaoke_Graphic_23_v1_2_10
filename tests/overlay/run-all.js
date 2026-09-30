@@ -1,7 +1,7 @@
 'use strict';
 // node tests/overlay/run-all.js  -> overlay tests + core (SRT/timing) tests
 const cp = require('node:child_process'), path = require('node:path');
-const files = ['overlay/overlay-plan', 'overlay/overlay-ass', 'overlay/overlay-host', 'overlay/overlay-structure', 'overlay/overlay-fonts', 'overlay/overlay-files', 'overlay/overlay-render',
+const files = ['overlay/overlay-plan', 'overlay/overlay-ass', 'overlay/overlay-host', 'overlay/overlay-structure', 'overlay/overlay-fonts', 'overlay/overlay-files', 'overlay/overlay-wrap', 'overlay/overlay-render',
   'test'];
 let failed = 0;
 for (const f of files) {

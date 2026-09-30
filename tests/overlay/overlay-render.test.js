@@ -260,3 +260,17 @@ test('background: a cue with only invisible characters does not fail the batch a
   assert.ok(covered(Math.round(2.3 * 30) - Math.round(0.5 * 30)) > 3000, 'the visible cue keeps its box');
   assert.ok(logs.some(l => /không có chữ nhìn thấy/.test(l)));
 });
+
+test('two rows: a line wider than the canvas is broken into two rows that both fit; highlight still crosses both', async () => {
+  const srt = '1\n00:00:00,500 --> 00:00:04,500\nShe found the hidden documents under the old wooden bridge yesterday morning\n';
+  const logs = [];
+  const meta = await Job.renderOverlay(Object.assign({}, base, { srtText: srt, outputDir: path.join(tmp, 'wrap'), baseName: 'wrap', fps: { num: 30, den: 1 }, twoRows: true, onLog: t => logs.push(t),
+    style: Object.assign({}, base.style, { fontSize: 64, outline: 0, bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadX: 24, bgPadY: 10, bgRadius: 10 }) }));
+  assert.ok(logs.some(l => /tự ngắt 1 cue/.test(l)), logs.join('\n'));
+  assert.ok(!logs.some(l => /quá dài cho 2 dòng/.test(l)));
+  const video = decode(meta.output), F = 6;
+  let l = W, r = -1, upper = 0, lower = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const a = video.frame(F)[(y * W + x) * 4 + 3]; if (a >= 250) { l = Math.min(l, x); r = Math.max(r, x); if (y < H / 2) upper++; else lower++; } }
+  assert.ok(l >= 0 + 20 && r <= W - 20, 'text leaves the canvas: ' + l + '..' + r);
+  assert.ok(upper > 200 && lower > 200, 'two rows expected: ' + upper + '/' + lower);
+});

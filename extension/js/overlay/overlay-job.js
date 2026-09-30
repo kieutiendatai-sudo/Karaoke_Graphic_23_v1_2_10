@@ -3,7 +3,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), crypto = require('crypto');
 const Core = require('../core.js'), Plan = require('./overlay-plan.js'), Ass = require('./ass-writer.js'),
-  Args = require('./ffmpeg-args.js'), Font = require('./font-info.js'), Measure = require('./overlay-measure.js');
+  Args = require('./ffmpeg-args.js'), Font = require('./font-info.js'), Measure = require('./overlay-measure.js'), Wrap = require('./overlay-wrap.js');
 
 const VERSION = 2;
 const exe = process.platform === 'win32' ? '.exe' : '';
@@ -88,15 +88,18 @@ async function renderOverlay(opts) {
   const fontBytes = fs.readFileSync(style.fontFile);
   const font = Font.readFontInfo(fontBytes);
   const cues = Core.parseSRT(opts.srtText);
-  let plan = Plan.buildPlan(cues, { fps: opts.fps, offset: opts.offset, twoRows: !!opts.twoRows });
   const preview = !!opts.window;
-  if (preview) plan = Plan.clipPlan(plan, Math.round(opts.window.startSeconds * opts.fps.num / opts.fps.den),
-    Math.max(1, Math.round(opts.window.lengthSeconds * opts.fps.num / opts.fps.den)));
+  const makePlan = () => {           // rows never change the timing, so this can be rebuilt after the rows are wrapped
+    const p = Plan.buildPlan(cues, { fps: opts.fps, offset: opts.offset, twoRows: !!opts.twoRows });
+    return preview ? Plan.clipPlan(p, Math.round(opts.window.startSeconds * opts.fps.num / opts.fps.den),
+      Math.max(1, Math.round(opts.window.lengthSeconds * opts.fps.num / opts.fps.den))) : p;
+  };
+  let plan = makePlan();
   const assStyle = Object.assign({}, style, { fontFamily: font.family, fontSize: style.fontSize, bold: !!style.bold && !font.bold,
     width: opts.width, height: opts.height });
   const codec = opts.codec || 'prores4444', alphaBits = opts.alphaBits || 16;
   const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
-    font: sha(fontBytes), first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.rows || e.line, e.row || 0, e.startChar, e.endChar]) }));
+    font: sha(fontBytes), wrap: opts.twoRows ? Wrap.widthLimit(assStyle) : 0, first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.rows || e.line, e.row || 0, e.startChar, e.endChar]) }));
 
   fs.mkdirSync(opts.outputDir, { recursive: true });
   const name = opts.baseName + '_karaoke' + (preview ? '_preview' : '');
@@ -113,16 +116,40 @@ async function renderOverlay(opts) {
   const partial = name + '.partial.mov', partialPath = path.join(opts.outputDir, partial);
   try {
     fs.copyFileSync(style.fontFile, path.join(work, 'fonts', path.basename(style.fontFile)));
+    // Measures rows with libass (one frame per row); results are kept for the whole render.
+    const rel = {}; let ref = null;
+    const measureRows = async strings => {
+      const missing = Array.from(new Set(strings)).filter(r => rel[r] === undefined);
+      for (let i = 0; i < missing.length || (i === 0 && !ref); i += 2000) {
+        const part = missing.slice(i, i + 2000), m = Measure.buildMeasureAss(part, assStyle), grab = Measure.frameBoxes(opts.width, opts.height);
+        fs.writeFileSync(path.join(work, 'measure.ass'), m.text, 'utf8');
+        await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height + ':r=1:d=' + m.frames,
+          '-vf', "ass=filename='measure.ass':fontsdir='fonts':shaping=simple,format=gray", '-frames:v', String(m.frames), '-f', 'rawvideo', '-'],
+          { cwd: work, cancel: opts.cancel, onStdout: c => grab.push(c) });
+        const r = Measure.toRelative(part, grab.boxes, m);
+        Object.assign(rel, r.rel); ref = ref || r.ref;
+      }
+    };
+    if (opts.twoRows) {
+      const limit = Wrap.widthLimit(assStyle);
+      log('Kiểm tra độ rộng dòng chữ (giới hạn ' + limit + ' px)…');
+      const wrapResult = await Wrap.wrapCues(cues, async strings => {
+        await measureRows(strings);
+        const w = {}; strings.forEach(x => { w[x] = rel[x] ? rel[x].r - rel[x].l : 0; });
+        return w;
+      }, limit);
+      cues.forEach(c => { c.lines = wrapResult.rows[c.id]; });
+      plan = makePlan();
+      if (wrapResult.wrapped) log('Đã tự ngắt ' + wrapResult.wrapped + ' cue thành 2 dòng.');
+      if (wrapResult.overflow.length) log('Cảnh báo: ' + wrapResult.overflow.length + ' cue quá dài cho 2 dòng (ví dụ cue ' + wrapResult.overflow[0] + '); chữ sẽ vượt khung. Giảm cỡ chữ hoặc chia cue trong SRT.');
+    }
     let boxes = null;
     if (assStyle.bgEnabled) {
       const rows = Array.from(new Set([].concat(...plan.events.map(e => e.rows || [e.line]))));
-      const m = Measure.buildMeasureAss(rows, assStyle), grab = Measure.frameBoxes(opts.width, opts.height);
-      fs.writeFileSync(path.join(work, 'measure.ass'), m.text, 'utf8');
       log('Đo ' + rows.length + ' dòng chữ để vẽ nền…');
-      await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height + ':r=1:d=' + m.frames,
-        '-vf', "ass=filename='measure.ass':fontsdir='fonts':shaping=simple,format=gray", '-frames:v', String(m.frames), '-f', 'rawvideo', '-'],
-        { cwd: work, cancel: opts.cancel, onStdout: c => grab.push(c) });
-      boxes = Measure.toRelative(rows, grab.boxes, m);
+      await measureRows(rows);
+      const only = {}; rows.forEach(r => { only[r] = rel[r]; });
+      boxes = { rel: only, ref, blank: rows.filter(r => !rel[r]) };
       if (boxes.blank.length) log('Bỏ qua nền của ' + boxes.blank.length + ' dòng không có chữ nhìn thấy (ký tự vô hình).');
     }
     const stats = {};
