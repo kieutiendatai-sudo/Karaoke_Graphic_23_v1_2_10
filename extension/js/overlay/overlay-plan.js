@@ -41,7 +41,8 @@
     for (i = 0; i < items.length; i++) {
       var item = items[i], next = items[i + 1], end = item.endFrame;
       if (next && next.startFrame < end) {
-        warnings.push('Cue ' + item.cue.id + ' chồng cue ' + next.cue.id + ' ' + (end - next.startFrame) + ' frame; đã cắt cue trước.');
+        if (end - next.startFrame > 1)                                  // a 1-frame overlap is frame rounding (e.g. at 29.97 fps): cut silently
+          warnings.push('Cue ' + item.cue.id + ' chồng cue ' + next.cue.id + ' ' + (end - next.startFrame) + ' frame; đã cắt cue trước.');
         end = next.startFrame;
       }
       if (end <= item.startFrame) { warnings.push('Cue ' + item.cue.id + ' bị bỏ (không còn frame).'); continue; }

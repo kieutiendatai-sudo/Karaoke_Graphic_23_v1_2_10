@@ -76,3 +76,12 @@ test('parseSRT keeps the SRT rows (cue.lines) while cue.text stays one line', ()
   assert.deepEqual(d.lines, ['She found the', 'documents today']); assert.equal(d.text, 'She found the documents today');
   assert.deepEqual(Core.parseSRT('1\n00:00:01,000 --> 00:00:03,000\nOne row only\n')[0].lines, ['One row only']);
 });
+
+test('a 1-frame overlap (frame rounding) is cut without a warning; a real overlap still warns', () => {
+  const fps = { num: 30000, den: 1001 };
+  const rounding = Plan.buildPlan(Core.parseSRT(srt([['00:00:01,000', '00:00:02,050', 'first cue here'], ['00:00:02,010', '00:00:03,000', 'second cue']])), { fps });
+  const cut = rounding.events.filter(e => e.cue === 1); const next = rounding.events.find(e => e.cue === 2);
+  assert.equal(cut[cut.length - 1].endFrame, next.startFrame);        // 1 frame really was cut (cue 1 would end 1 frame later)
+  assert.equal(Plan.buildPlan(Core.parseSRT(srt([['00:00:01,000', '00:00:02,050', 'first cue here']])), { fps }).lastFrame, next.startFrame + 1);
+  assert.ok(!rounding.warnings.some(w => /chồng/.test(w)), rounding.warnings.join('|'));
+});
