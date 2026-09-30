@@ -1,8 +1,8 @@
 'use strict';
-// node tests/overlay/run-all.js  -> overlay tests + the existing (unchanged) workflow tests
+// node tests/overlay/run-all.js  -> overlay tests + core (SRT/timing) tests
 const cp = require('node:child_process'), path = require('node:path');
 const files = ['overlay/overlay-plan', 'overlay/overlay-ass', 'overlay/overlay-host', 'overlay/overlay-structure', 'overlay/overlay-render',
-  'test', 'test-panel', 'test-batch-panel', 'test-batch-host', 'test-fast-parse', 'test-crop-reads', 'test-kf-metrics'];
+  'test'];
 let failed = 0;
 for (const f of files) {
   const file = path.join(__dirname, '..', f + (f.startsWith('overlay/') ? '.test.js' : '.js'));

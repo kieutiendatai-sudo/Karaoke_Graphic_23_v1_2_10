@@ -1,7 +1,7 @@
 # Panel Karaoke Overlay (Premiere Pro 23)
 
-Panel **mới** trong cùng bundle với panel Graphic cũ (`Karaoke Graphic 23`, không bị đổi hành vi). Hai panel độc lập:
-`Window → Extensions → Karaoke Overlay`.
+Panel duy nhất của extension: `Window → Extensions → Karaoke Overlay`. Workflow Graphic/Crop/keyframe cũ đã bị xóa
+(còn trong lịch sử git, commit `5b49fd5`).
 
 ```
 SRT → KGCore.timing (đã có) → ASS (mỗi từ một Dialogue) → FFmpeg/libass → overlay MOV có alpha → 1 clip trong Premiere
@@ -30,7 +30,7 @@ từng nét); từ trước/sau giữ màu thường.
 
 ## Cài đặt
 
-Như panel cũ: đóng Premiere, chạy `INSTALL.bat`. Panel Overlay bật `--enable-nodejs --mixed-context` (chỉ panel này).
+Đóng Premiere, chạy `INSTALL.bat`. Panel bật `--enable-nodejs --mixed-context` để chạy FFmpeg.
 Cần **FFmpeg đầy đủ** (có libass và `prores_ks`); chọn thư mục chứa `ffmpeg.exe`, hoặc đặt trong `extension\bin\`, hoặc PATH.
 Bấm **Kiểm tra FFmpeg** để xác nhận bản của bạn đủ.
 
@@ -59,4 +59,4 @@ SRT/kiểu chữ sẽ bỏ qua (cùng `identity`); đổi bất kỳ tùy chọn
 node tests/overlay/run-all.js            # KG_FFMPEG=<đường dẫn ffmpeg> nếu ffmpeg không có trong PATH
 ```
 Gồm test timing/ASS/tham số FFmpeg, render thật (alpha, màu, viền không tối, mỗi từ đổi màu đúng frame, vị trí ổn định,
-căn lề, hủy, lỗi), host với DOM giả, cấu trúc manifest, và toàn bộ test của workflow cũ.
+căn lề, hủy, lỗi), host với DOM giả, cấu trúc manifest và test lõi SRT/timing.

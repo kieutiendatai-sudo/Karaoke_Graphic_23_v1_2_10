@@ -4,8 +4,7 @@ AGENTS.md# Karaoke Graphic 23 - Coding Instructions
 
 - Target Adobe Premiere Pro 23 only.
 - This is a CEP extension. Do not migrate to UXP.
-- Preserve the current one-line subtitle workflow.
-- Preserve the current visible karaoke/highlight result.
+- Preserve the one-line subtitle style.
 - Preserve existing SRT timing and frame accuracy.
 - Do not introduce scale animation unless explicitly requested.
 
@@ -18,38 +17,12 @@ AGENTS.md# Karaoke Graphic 23 - Coding Instructions
 - Preserve existing behavior unless explicitly requested.
 - Every changed line should relate directly to the task.
 
-## Performance work
+## Architecture
 
-Before optimizing, identify the actual bottleneck.
-
-Pay particular attention to:
-
-- CEP -> ExtendScript RPC count
-- Premiere API calls inside loops
-- per-cue Graphic/property lookups
-- timeline scans
-- Crop/property collection access
-- keyframe writes
-- repeated start/end/time reads
-- serialization/parsing overhead
-- work performed once per cue that could be cached or batched
-
-Do not assume JavaScript computation is the bottleneck if Premiere API calls dominate.
-
-Preserve correctness before reducing API calls.
-
-## Existing optimization
-
-Do not remove existing optimizations without evidence.
-
-The project already uses:
-- fast timeline inspection
-- cached timing/layout/keyframe plans
-- host-side run state
-- batched plan submission
-- resume tokens/cursors
-- reduced repeated keyframe reads
-- existing benchmark and tests
+- The old Premiere Graphic/Crop/keyframe workflow was removed (last version: commit 5b49fd5).
+- Current pipeline: SRT -> word timing (`KGCore.timing`) -> ASS -> FFmpeg/libass -> transparent overlay MOV -> one clip imported into Premiere.
+- Keep whole-word instant color change, one-line style, and frame-exact SRT timing.
+- Do not remove the 2-pass alpha render (color + matte, `alphamerge`, `unpremultiply`) without evidence.
 
 ## Verification
 
@@ -58,7 +31,7 @@ Before completing a change:
 1. Review the original request.
 2. Review the diff.
 3. Run the relevant existing tests.
-4. Run benchmark checks when performance code changes.
+4. Measure before claiming any speed change.
 5. Confirm Premiere 23 compatibility.
 6. Report which files changed.
 7. Report what was actually verified.

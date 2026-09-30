@@ -28,7 +28,7 @@ try {
             }
             Remove-Item -LiteralPath $stateFile -Force
         }
-        Write-Host 'Uninstalled Karaoke Graphic 23. Existing backup folders are preserved.' -ForegroundColor Green
+        Write-Host 'Uninstalled Karaoke Overlay. Existing backup folders are preserved.' -ForegroundColor Green
         exit 0
     }
     $source = Join-Path $PSScriptRoot 'extension'
@@ -51,7 +51,7 @@ try {
     New-ItemProperty -LiteralPath $registryPath -Name PlayerDebugMode -Value '1' -PropertyType String -Force | Out-Null
     Write-Host 'Installed successfully for the current Windows user. No administrator rights required.' -ForegroundColor Green
     Write-Host 'Enabled unsigned CEP panels through HKCU Software\Adobe\CSXS.11 PlayerDebugMode=1.'
-    Write-Host 'Open Premiere 23 > Window > Extensions > Karaoke Graphic 23.'
+    Write-Host 'Open Premiere 23 > Window > Extensions > Karaoke Overlay.'
 } catch {
     Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
     exit 1

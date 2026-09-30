@@ -1,4 +1,4 @@
-/* Shared, dependency-free timing and geometry. Single-line karaoke only. */
+/* Shared, dependency-free SRT parsing and word timing (frame grid). Single-line karaoke only. */
 (function(root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -104,62 +104,5 @@
     data.collapsed=data.words.filter(function(w){return w.endFrame===w.startFrame;}).length;
     return data;
   }
-  function geometry(data,cfg,measure) {
-    var width=cfg.width, fontScale=cfg.widthFactor/100, pad=cfg.padding;
-    if (!finite(width) || width<=0 || !finite(fontScale) || fontScale<=0) fail('Kích thước không hợp lệ.');
-    function m(s) {return (measure(s)+Math.max(0,Array.from(s).length-1)*cfg.tracking)*fontScale;}
-    var line=data.lines[0],w=m(line),anchor=width*cfg.anchor/100;
-    var left=cfg.align==='left'?anchor:cfg.align==='right'?anchor-w:anchor-w/2;
-    if (left-pad<0 || left+w+pad>width) data.outOfBounds=true;
-    data.rows=[{left:left,right:left+w,width:w}];
-    data.words.forEach(function(word,i) {
-      word.xStart=left+m(line.slice(0,word.startChar));
-      var next=data.words[i+1];
-      word.xEnd=next?(left+(m(line.slice(0,word.endChar))+m(line.slice(0,next.startChar)))/2):left+w+pad;
-    });
-    return data;
-  }
-  function makeKeys(data,mode,width,padding) {
-    var words=data.words, keys=[];
-    function push(frame,x,interp) {
-      var value=Math.max(0,Math.min(100,100-x/width*100));
-      var point={frame:Math.max(0,Math.min(data.frames-1,frame)),value:value,interp:interp};
-      if(keys.length && keys[keys.length-1].frame===point.frame) keys[keys.length-1]=point;
-      else keys.push(point);
-    }
-    var left=data.rows[0].left-padding;
-    push(0,left,4);
-    if(mode==='hold') words.forEach(function(w){push(w.startFrame,w.xEnd,4);});
-    else {
-      push(words[0].startFrame,left,0);
-      words.forEach(function(w){push(w.endFrame,w.xEnd,0);});
-    }
-    return keys;
-  }
-  function makeItem(clip,data,cfg) {
-    return {id:clip.id,track:clip.track,start:clip.start,end:clip.end,inPoint:clip.inPoint,
-      top:0,bottom:0,keys:makeKeys(data,cfg.mode,cfg.width,cfg.padding)};
-  }
-  function cueIndex(cues,offset,fps) {
-    var out={},i,key;
-    for(i=0;i<cues.length;i++) {
-      key=Math.round((cues[i].start+offset)*fps);
-      (out[key]||(out[key]=[])).push(cues[i]);
-    }
-    return out;
-  }
-  function matchCue(clip,cues,offset,fps,index) {
-    var tol=1.1/fps,pool=cues;
-    if(index) {
-      pool=[];var seen={},base=Math.round(clip.start*fps);
-      for(var f=base-2;f<=base+2;f++) {
-        var bucket=index[f]||[];
-        for(var b=0;b<bucket.length;b++) if(!seen[bucket[b].id]) {seen[bucket[b].id]=true;pool.push(bucket[b]);}
-      }
-    }
-    var hits=pool.filter(function(c){return Math.abs(c.start+offset-clip.start)<=tol && Math.abs(c.end+offset-clip.end)<=tol;});
-    if(hits.length!==1) fail('Clip “'+clip.name+'”: tìm thấy '+hits.length+' cue khớp cả đầu/cuối (sai số 1 frame). Kiểm tra offset và SRT.');
-    return hits[0];
-  }
-  return {duration:duration,timecode:timecode,parseSRT:parseSRT,oneLine:oneLine,weight:weight,allocate:allocate,tokens:tokens,timing:timing,geometry:geometry,makeKeys:makeKeys,makeItem:makeItem,cueIndex:cueIndex,matchCue:matchCue};
+  return {duration:duration,timecode:timecode,parseSRT:parseSRT,oneLine:oneLine,weight:weight,allocate:allocate,tokens:tokens,timing:timing};
 }));

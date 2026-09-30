@@ -5,16 +5,20 @@ const { test } = require('./helper');
 const ext = path.join(__dirname, '../../extension');
 const read = p => fs.readFileSync(path.join(ext, p), 'utf8');
 
-test('manifest: second extension with Node only for the overlay panel; old panel unchanged', () => {
+test('manifest: a single extension (the overlay panel) with Node enabled, Premiere 23 only', () => {
   const xml = read('CSXS/manifest.xml');
-  const blocks = xml.split('<Extension Id=').slice(1);
-  const oldBlock = blocks.find(b => /local\.karaoke\.graphic23\.panel"/.test(b) && /MainPath/.test(b));
-  const newBlock = blocks.find(b => /local\.karaoke\.graphic23\.overlay"/.test(b) && /MainPath/.test(b));
-  assert.ok(/MainPath>\.\/index\.html/.test(oldBlock) && !/nodejs/.test(oldBlock));
-  assert.ok(/--disable-background-timer-throttling/.test(oldBlock));
-  assert.ok(/MainPath>\.\/overlay\.html/.test(newBlock) && /--enable-nodejs/.test(newBlock) && /--mixed-context/.test(newBlock));
-  assert.ok(/ScriptPath>\.\/jsx\/overlay-host\.jsx/.test(newBlock));
-  assert.ok(/Host Name="PPRO" Version="\[23\.0,23\.9\]"/.test(xml));                    // still Premiere 23 only
+  assert.equal((xml.match(/<Extension Id=/g) || []).length, 2);                         // ExtensionList + DispatchInfoList entry
+  assert.ok(/MainPath>\.\/overlay\.html/.test(xml) && /--enable-nodejs/.test(xml) && /--mixed-context/.test(xml));
+  assert.ok(/ScriptPath>\.\/jsx\/overlay-host\.jsx/.test(xml));
+  assert.ok(/Host Name="PPRO" Version="\[23\.0,23\.9\]"/.test(xml));
+});
+
+test('the old Graphic/Crop workflow is gone', () => {
+  for (const gone of ['index.html', 'js/panel.js', 'jsx/host.jsx', 'jsx/json2.jsx', 'css/panel.css'])
+    assert.ok(!fs.existsSync(path.join(ext, gone)), gone + ' still exists');
+  const Core = require(path.join(ext, 'js/core.js'));
+  for (const fn of ['geometry', 'makeKeys', 'makeItem', 'cueIndex', 'matchCue']) assert.equal(Core[fn], undefined, fn);
+  for (const fn of ['parseSRT', 'timing', 'tokens', 'oneLine']) assert.equal(typeof Core[fn], 'function', fn);   // what the overlay uses
 });
 
 test('overlay.html only references files that exist and every field id used by the panel exists', () => {
