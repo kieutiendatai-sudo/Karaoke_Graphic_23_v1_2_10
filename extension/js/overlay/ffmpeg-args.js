@@ -42,7 +42,7 @@
       encode = ['-c:v', 'qtrle', '-pix_fmt', 'argb'];
     } else if (!o.codec || o.codec === 'prores4444') {
       tail = 'scale=out_color_matrix=bt709:out_range=limited,format=yuva444p10le';
-      encode = ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-alpha_bits', String(o.alphaBits || 16), '-qscale:v', '2', '-vendor', 'apl0'].concat(BT709);
+      encode = ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-alpha_bits', String(o.alphaBits || 16), '-qscale:v', String(o.qscale || 2), '-vendor', 'apl0'].concat(BT709);
     } else throw new Error('Codec overlay phải là prores4444 hoặc qtrle.');
     var head = '[0:v]format=yuv420p,split[k][m];[k]', matteIn = '[m]', fpsTail = ',fps=' + rate + ':round=near', input;
     if (o.segments) input = ['-f', 'concat', '-safe', '0', '-i', 'segments.txt'];

@@ -99,8 +99,10 @@ async function renderOverlay(opts) {
   let plan = makePlan();
   const assStyle = Object.assign({}, style, { fontFamily: font.family, fontSize: style.fontSize, bold: !!style.bold && !font.bold,
     width: opts.width, height: opts.height });
-  const codec = opts.codec || 'prores4444', alphaBits = opts.alphaBits || 16;
-  const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
+  // ProRes 4444 quality presets: a coarser quantiser (and 8-bit alpha) shrinks the file a lot; flat subtitle graphics tolerate it.
+  const QUALITY = { high: { qscale: 2, alphaBits: 16 }, balanced: { qscale: 10, alphaBits: 8 }, light: { qscale: 20, alphaBits: 8 } };
+  const codec = opts.codec || 'prores4444', q = QUALITY[opts.quality || 'high'] || QUALITY.high, qscale = q.qscale, alphaBits = opts.alphaBits || q.alphaBits;
+  const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, qscale: codec === 'qtrle' ? 0 : qscale, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
     font: sha(fontBytes), wrap: opts.twoRows ? Wrap.widthLimit(assStyle) : 0, first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.rows || e.line, e.row || 0, e.startChar, e.endChar]) }));
 
   fs.mkdirSync(opts.outputDir, { recursive: true });
@@ -164,7 +166,7 @@ async function renderOverlay(opts) {
     // one still frame per segment instead of every output frame (the text only changes at word/cue boundaries)
     await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=' + opts.width + 'x' + opts.height, '-frames:v', '1', '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-enc_time_base', '1:1000000', '-f', 'nut', 'black.nut'], { cwd: work, cancel: opts.cancel });
     fs.writeFileSync(path.join(work, 'segments.txt'), Args.segmentList(plan, 'black.nut'), 'utf8');
-    const args = Args.overlayArgs({ fps: opts.fps, width: opts.width, height: opts.height, durationSeconds: plan.durationSeconds, codec, alphaBits, output: partialPath,
+    const args = Args.overlayArgs({ fps: opts.fps, width: opts.width, height: opts.height, durationSeconds: plan.durationSeconds, codec, alphaBits, qscale, output: partialPath,
       segments: plan.frames });
     fs.writeFileSync(path.join(work, 'ffmpeg_args.json'), JSON.stringify(args, null, 1));
     log('Render overlay ' + opts.width + 'x' + opts.height + ', ' + plan.durationSeconds.toFixed(2) + 's, ' + plan.words + ' từ, ' + codec + '.');

@@ -274,3 +274,14 @@ test('two rows: a line wider than the canvas is broken into two rows that both f
   assert.ok(l >= 0 + 20 && r <= W - 20, 'text leaves the canvas: ' + l + '..' + r);
   assert.ok(upper > 200 && lower > 200, 'two rows expected: ' + upper + '/' + lower);
 });
+
+test('ProRes quality presets: lighter presets give smaller files, the same frame count and still decode', async () => {
+  const sizes = {}, frames = {};
+  for (const quality of ['high', 'balanced', 'light']) {
+    const meta = await Job.renderOverlay(Object.assign({}, base, { outputDir: path.join(tmp, 'q' + quality), baseName: 'q', fps: { num: 30, den: 1 }, quality,
+      style: Object.assign({}, base.style, { bgEnabled: true, bgColor: '#0000FF', bgOpacity: 50, bgPadX: 20, bgPadY: 10, bgRadius: 8 }) }));
+    sizes[quality] = fs.statSync(meta.output).size; frames[quality] = decode(meta.output).count;
+  }
+  assert.ok(sizes.balanced < sizes.high * 0.85 && sizes.light < sizes.balanced, JSON.stringify(sizes));
+  assert.equal(frames.high, frames.balanced); assert.equal(frames.high, frames.light);
+});

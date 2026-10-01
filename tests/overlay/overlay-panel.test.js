@@ -29,7 +29,7 @@ function boot(stored) {
 
 test('defaults: ProRes first (qtrle is opt-in), dependent fields disabled until their checkbox is ticked', () => {
   const { els } = boot();
-  assert.equal(els.codec.value, 'prores4444');
+  assert.equal(els.codec.value, 'prores4444'); assert.equal(els.quality.value, 'balanced');
   assert.ok(html.indexOf('value="prores4444"') < html.indexOf('value="qtrle"'));
   assert.equal(els.twoRows.checked, false); assert.equal(els.rowFields.disabled, true);
   assert.equal(els.bgEnabled.checked, false); assert.equal(els.bgFields.disabled, true);
