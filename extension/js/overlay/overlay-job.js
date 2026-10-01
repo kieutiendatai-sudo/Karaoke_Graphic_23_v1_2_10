@@ -176,8 +176,8 @@ async function renderOverlay(opts) {
     if (!fs.existsSync(partialPath) || fs.statSync(partialPath).size === 0) throw new Error('FFmpeg không tạo được file đầu ra.');
     lap('ffmpeg_render');
     // Full decoding of a multi-GB ProRes file costs as much as a third of the render. Read every packet (container integrity + duration) and
-    // decode short samples at the start, middle and end instead; opts.fullVerify restores the complete decode.
-    if (opts.fullVerify) await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-f', 'null', '-'], { cancel: opts.cancel });
+    // decode short samples at the start, middle and end instead; opts.fullVerify restores the complete decode (always used for qtrle, which decodes in a few seconds).
+    if (opts.fullVerify || codec === 'qtrle') await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-f', 'null', '-'], { cancel: opts.cancel });
     else {
       let seen = 0;
       await run(opts.ffmpeg, ['-hide_banner', '-nostdin', '-v', 'error', '-xerror', '-i', partialPath, '-map', '0:v:0', '-c', 'copy', '-progress', 'pipe:1', '-f', 'null', '-'],
