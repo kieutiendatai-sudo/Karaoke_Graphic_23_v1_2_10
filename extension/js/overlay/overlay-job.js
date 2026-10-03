@@ -99,10 +99,10 @@ async function renderOverlay(opts) {
   let plan = makePlan();
   const assStyle = Object.assign({}, style, { fontFamily: font.family, fontSize: style.fontSize, bold: !!style.bold && !font.bold,
     width: opts.width, height: opts.height });
-  // ProRes 4444 quality presets: a coarser quantiser (and 8-bit alpha) shrinks the file a lot; flat subtitle graphics tolerate it.
-  const QUALITY = { high: { qscale: 2, alphaBits: 16 }, balanced: { qscale: 10, alphaBits: 8 }, light: { qscale: 20, alphaBits: 8 } };
+  // ProRes 4444 quality presets: a coarser quantiser shrinks the file. alpha stays 16-bit: 8-bit alpha made Media Encoder's RAM climb during export (measured on the user's machine; qscale 2 + alpha 16 does not).
+  const QUALITY = { high: { qscale: 2, alphaBits: 16 }, balanced: { qscale: 10, alphaBits: 16 }, light: { qscale: 20, alphaBits: 16 } };
   const codec = opts.codec || 'prores4444', q = QUALITY[opts.quality || 'high'] || QUALITY.high, qscale = q.qscale, alphaBits = opts.alphaBits || q.alphaBits;
-  const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, qscale: codec === 'qtrle' ? 0 : qscale, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
+  const identity = sha(JSON.stringify({ v: VERSION, codec, alphaBits, qscale: codec === 'prores4444' ? qscale : 0, fps: opts.fps, w: opts.width, h: opts.height, style: assStyle,
     font: sha(fontBytes), wrap: opts.twoRows ? Wrap.widthLimit(assStyle) : 0, first: plan.firstFrame, events: plan.events.map(e => [e.startFrame, e.endFrame, e.rows || e.line, e.row || 0, e.startChar, e.endChar]) }));
 
   fs.mkdirSync(opts.outputDir, { recursive: true });

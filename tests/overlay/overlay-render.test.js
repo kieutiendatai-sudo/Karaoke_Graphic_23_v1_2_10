@@ -285,3 +285,20 @@ test('ProRes quality presets: lighter presets give smaller files, the same frame
   assert.ok(sizes.balanced < sizes.high * 0.85 && sizes.light < sizes.balanced, JSON.stringify(sizes));
   assert.equal(frames.high, frames.balanced); assert.equal(frames.high, frames.light);
 });
+
+test('balanced and light presets keep 16-bit alpha; png codec renders the same frame count with straight alpha', async () => {
+  for (const quality of ['balanced', 'light']) {
+    await Job.renderOverlay(Object.assign({}, base, { outputDir: path.join(tmp, 'a16' + quality), baseName: 'a', fps: { num: 30, den: 1 }, quality, keepWork: true }));
+    const root = path.join(os.tmpdir(), 'KaraokeOverlay'), newest = fs.readdirSync(root).map(d => path.join(root, d)).sort((x, y) => fs.statSync(y).mtimeMs - fs.statSync(x).mtimeMs)[0];
+    const args = JSON.parse(fs.readFileSync(path.join(newest, 'ffmpeg_args.json'), 'utf8'));
+    fs.rmSync(newest, { recursive: true, force: true });
+    assert.equal(args[args.indexOf('-alpha_bits') + 1], '16');
+  }
+  const ref = await Job.renderOverlay(Object.assign({}, base, { outputDir: path.join(tmp, 'pref'), baseName: 'r', fps: { num: 30, den: 1 } }));
+  const png = await Job.renderOverlay(Object.assign({}, base, { outputDir: path.join(tmp, 'ppng'), baseName: 'p', fps: { num: 30, den: 1 }, codec: 'png' }));
+  const a = decode(ref.output), b = decode(png.output);
+  assert.equal(b.count, a.count);
+  const f = Math.round(1.5 * 30);
+  assert.ok(near(b.at(f, 0, 0), [0, 0, 0], 0) === false && b.at(f, 0, 0)[3] === 0, 'corner stays transparent');
+  assert.ok(analyse(b.frame(f)).hl > 20, 'highlight visible in the png render');
+});

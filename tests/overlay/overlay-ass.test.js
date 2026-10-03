@@ -93,6 +93,7 @@ test('ffmpeg args: two inputs, alphamerge + unpremultiply, ProRes 4444 with alph
   assert.ok(graph.includes("ass=filename='karaoke.ass':fontsdir='fonts'") && graph.includes("ass=filename='matte.ass'"));
   assert.ok(a.every(x => typeof x === 'string'));
   assert.ok(Args.overlayArgs({ fps: { num: 30, den: 1 }, width: 10, height: 10, durationSeconds: 1, codec: 'qtrle', output: 'x.mov' }).includes('qtrle'));
+  assert.ok(Args.overlayArgs({ fps: { num: 30, den: 1 }, width: 10, height: 10, durationSeconds: 1, codec: 'png', output: 'x.mov' }).includes('png'));
   assert.throws(() => Args.overlayArgs({ fps: { num: 30, den: 1 }, width: 10, height: 10, durationSeconds: 1, codec: 'h264', output: 'x.mov' }), /Codec/);
 });
 
