@@ -51,20 +51,4 @@ test('Frame timing never advances past the cue and gives words a frame when poss
   assert.equal(t.words.at(-1).endFrame,6);
 });
 
-test('Geometry and item stay single-line with no vertical crop',()=>{
-  const data=C.geometry(C.timing('one two three',3,30),{width:1920,widthFactor:100,padding:3,tracking:0,anchor:50,align:'center'},s=>s.length*20);
-  const item=C.makeItem({id:'x',track:2,start:1,end:4,inPoint:10},data,{mode:'hold',width:1920,padding:3});
-  assert.equal(data.lines.length,1);
-  assert.equal(data.rows.length,1);
-  assert.equal(item.top,0);
-  assert.equal(item.bottom,0);
-  assert(item.keys.length>1);
-});
-
-test('Cue matching still requires unique start and end',()=>{
-  const cues=C.parseSRT('1\n00:00:01,000 --> 00:00:04,000\nHello');
-  assert.equal(C.matchCue({start:11,end:14,name:'x'},cues,10,30,C.cueIndex(cues,10,30)).id,1);
-  assert.throws(()=>C.matchCue({start:11,end:15,name:'x'},cues,10,30));
-});
-
 console.log(checks+' core single-line tests passed.');

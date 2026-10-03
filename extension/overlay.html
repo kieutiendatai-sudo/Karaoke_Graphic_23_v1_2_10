@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Karaoke Overlay</title>
+<link rel="stylesheet" href="css/overlay.css"></head>
+<body>
+<header><h1>Karaoke <em>Overlay</em></h1><p>SRT → ASS → FFmpeg → clip overlay trong suốt · Premiere 23</p></header>
+<div id="env" class="notice"></div>
+
+<section><h2>Preset kiểu chữ</h2>
+<div class="row"><select id="presetSelect"><option value="">— chọn preset đã lưu —</option></select><button id="presetDelete" title="Xóa preset đang chọn">Xóa</button></div>
+<div class="row"><input id="presetName" placeholder="Tên preset (ví dụ: Banana Tales)"><button id="presetSave" class="primary" title="Lưu kiểu chữ hiện tại">Lưu</button></div>
+<div class="grid"><button id="presetExport">Xuất preset ra file</button><button id="presetImport">Nhập preset từ file</button></div>
+<p class="hint">Preset lưu: font, cỡ, màu, viền, bóng, bố cục, nền, vị trí, khung hình, codec. Không lưu đường dẫn SRT/thư mục.</p>
+</section>
+
+<section><h2>1 · Tệp</h2>
+<label>Thư mục FFmpeg (chứa ffmpeg.exe)<div class="row"><input id="ffmpegDir" placeholder="trống = dùng PATH hoặc thư mục bin của panel"><button data-pick="ffmpegDir" data-kind="dir">…</button></div></label>
+<button id="checkFfmpeg">Kiểm tra FFmpeg</button>
+<label>File SRT (mỗi dòng một file hoặc một thư mục)<textarea id="srtPath" rows="3" placeholder="Dán đường dẫn, hoặc dùng 2 nút bên dưới"></textarea></label>
+<div class="grid"><button id="addSrtFiles">+ Chọn nhiều file SRT</button><button id="addSrtDir">+ Chọn thư mục SRT</button></div>
+<label>Thư mục kết quả (trống = lưu cạnh từng file SRT)<div class="row"><input id="outputDir"><button data-pick="outputDir" data-kind="dir">…</button></div></label>
+</section>
+
+<section><h2>2 · Font và màu chữ</h2>
+<label>Font đã cài trong máy<div class="row"><select id="systemFont"><option value="">— bấm ⟳ để quét font hệ thống —</option></select><button id="scanFonts" title="Quét font hệ thống">⟳</button></div></label>
+<label>File font (.ttf/.otf)<div class="row"><input id="fontFile"><button data-pick="fontFile" data-kind="file">…</button></div></label>
+<div class="grid">
+<label>Cỡ chữ (px)<input id="fontSize" type="number" min="8" max="400"></label>
+<label>Căn ngang<select id="align"><option value="center">Giữa</option><option value="left">Trái</option><option value="right">Phải</option></select></label>
+<label>Màu chữ chưa đọc<div class="row"><input id="textColor" class="hex" maxlength="7" placeholder="#RRGGBB" spellcheck="false"><i class="sw" data-for="textColor"></i></div></label>
+<label>Màu từ đang đọc<div class="row"><input id="highlightColor" class="hex" maxlength="7" placeholder="#RRGGBB" spellcheck="false"><i class="sw" data-for="highlightColor"></i></div></label>
+<label>Màu viền<div class="row"><input id="outlineColor" class="hex" maxlength="7" placeholder="#RRGGBB" spellcheck="false"><i class="sw" data-for="outlineColor"></i></div></label>
+<label>Độ dày viền<input id="outline" type="number" step="0.1" min="0" max="20"></label>
+<label>Bóng<input id="shadow" type="number" step="0.1" min="0" max="20"></label>
+</div>
+<div class="check"><input id="bold" type="checkbox"><span>In đậm (nếu font chưa đậm)</span></div>
+</section>
+
+<section><h2>3 · Bố cục dòng và vị trí</h2>
+<div class="check"><input id="twoRows" type="checkbox"><span>Dùng 2 dòng: giữ dòng SRT, tự ngắt khi quá rộng, đổi màu xuyên 2 dòng</span></div>
+<fieldset id="rowFields" disabled class="dep"><div class="grid">
+<label>Chiều rộng tối đa (% khung, gồm cả nền)<input id="maxWidthPercent" type="number" min="20" max="100" step="1"></label>
+<label>Khoảng cách 2 dòng (% cỡ chữ)<input id="lineSpacing" type="number" min="40" max="200" step="1"></label>
+</div></fieldset>
+<div class="grid">
+<label>Điểm neo X (% chiều rộng)<input id="anchorX" type="number" min="0" max="100" step="0.5"></label>
+<label>Vị trí Y (% chiều cao khung)<input id="yPercent" type="number" min="0" max="100" step="0.5"></label>
+<label>Cao dải phụ đề (px, 0 = tự động)<input id="canvasHeight" type="number" min="0" step="2"></label>
+</div>
+</section>
+
+<section><h2>4 · Nền phụ đề</h2>
+<div class="check"><input id="bgEnabled" type="checkbox"><span>Bật màu nền sau chữ</span></div>
+<fieldset id="bgFields" disabled class="dep"><div class="grid">
+<label>Màu nền<div class="row"><input id="bgColor" class="hex" maxlength="7" placeholder="#RRGGBB" spellcheck="false"><i class="sw" data-for="bgColor"></i></div></label>
+<label>Độ đục nền (%)<input id="bgOpacity" type="number" min="0" max="100" step="5"></label>
+<label>Đệm ngang (px)<input id="bgPadX" type="number" min="0" max="200" step="1"></label>
+<label>Đệm dọc (px)<input id="bgPadY" type="number" min="0" max="120" step="1"></label>
+<label>Bo góc nền (px, 0 = vuông)<input id="bgRadius" type="number" min="0" max="200" step="1"></label>
+</div></fieldset>
+</section>
+
+<section><h2>5 · Khung hình và xuất file</h2><div class="grid">
+<label>FPS<select id="fps"><option value="auto">Theo sequence</option><option>23.976</option><option>24</option><option>25</option><option>29.97</option><option>30</option><option>50</option><option>59.94</option><option>60</option></select></label>
+<label>Rộng (px, 0 = theo sequence)<input id="width" type="number" min="0" step="2"></label>
+<label>Offset SRT (giây)<input id="offset" type="number" step="0.001"></label>
+<label>Codec<select id="codec"><option value="png">PNG trong MOV (khuyên dùng: nhẹ, ít RAM, xuất ổn định)</option><option value="prores4444">ProRes 4444 (ổn định nhưng nặng hơn ~2,5 lần)</option><option value="qtrle">Animation qtrle (nhỏ nhất — hay lỗi khi xuất)</option></select></label>
+<label>Chất lượng (chỉ ProRes)<select id="quality"><option value="high">Cao (file nặng nhất)</option><option value="balanced">Cân bằng</option><option value="light">Nhẹ (file nhỏ nhất)</option></select></label>
+</div>
+<label>Số file render song song (1 = lần lượt)<input id="parallel" type="number" min="1" max="6" step="1"></label>
+</section>
+
+<section><h2>6 · Chạy</h2>
+<div class="grid"><label>Xem thử từ giây<input id="previewStart" type="number" step="0.5" min="0"></label><label>Dài (giây)<input id="previewLength" type="number" step="0.5" min="1"></label></div>
+<div class="grid"><button id="preview">Xem thử (render ngắn)</button><button id="render" class="primary">Render overlay</button></div>
+<div class="check"><input id="autoImport" type="checkbox"><span>Tự nhập vào Project sau khi render xong</span></div>
+<div class="grid"><button id="import" class="primary">Nhập tất cả vào Project</button><button id="stop">Dừng</button></div>
+<button id="openFolder">Mở thư mục kết quả</button>
+<progress id="progress" max="1" value="0"></progress>
+</section>
+<section><h2>Nhật ký</h2><pre id="log"></pre></section>
+<script src="js/overlay/overlay-panel.js"></script>
+</body></html>
