@@ -50,7 +50,7 @@ SRT/kiểu chữ sẽ bỏ qua (cùng `identity`); đổi bất kỳ tùy chọn
 - Một dòng: chữ dài hơn khung bị cắt; panel cảnh báo ước tính bằng số đo canvas.
 - libass chọn font theo tên họ; nếu máy đã cài font trùng tên, kết quả có thể dùng font đã cài thay vì file chọn.
 - Kiểu chữ không giống 100% Graphic của Premiere (libass ≠ engine chữ của Premiere).
-- Overlay ProRes 4444 khá nặng (video 1 giờ khoảng vài GB); tùy chọn `qtrle` nhỏ hơn nhiều nhưng chưa xác nhận Premiere đọc ổn.
+- Codec mặc định là PNG trong MOV (8 bit RGBA, mỗi frame độc lập): xuất Media Encoder ổn định và RAM thấp trên máy người dùng. ProRes 4444 nặng hơn (~95 MB/phút ở chất lượng Cao, ~38 MB/phút với PNG trên mẫu thử); preset Cân bằng/Nhẹ giữ alpha 16 bit vì alpha 8 bit làm RAM Media Encoder tăng. `qtrle` nhỏ nhất nhưng hay lỗi "Error retrieving frame" khi xuất.
 
 ## Kiểm thử
 

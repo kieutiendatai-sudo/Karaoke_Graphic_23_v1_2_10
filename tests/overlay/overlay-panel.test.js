@@ -27,10 +27,10 @@ function boot(stored) {
   return { els, storage, options: () => els.presetSelect.children.map(c => c.value) };
 }
 
-test('defaults: ProRes first (qtrle is opt-in), dependent fields disabled until their checkbox is ticked', () => {
+test('defaults: PNG first (ProRes and qtrle are opt-in), dependent fields disabled until their checkbox is ticked', () => {
   const { els } = boot();
-  assert.equal(els.codec.value, 'prores4444'); assert.equal(els.quality.value, 'balanced');
-  assert.ok(html.indexOf('value="prores4444"') < html.indexOf('value="qtrle"'));
+  assert.equal(els.codec.value, 'png'); assert.equal(els.quality.value, 'balanced');
+  assert.ok(html.indexOf('value="png"') < html.indexOf('value="prores4444"') && html.indexOf('value="prores4444"') < html.indexOf('value="qtrle"'));
   assert.equal(els.twoRows.checked, false); assert.equal(els.rowFields.disabled, true);
   assert.equal(els.bgEnabled.checked, false); assert.equal(els.bgFields.disabled, true);
   els.bgEnabled.checked = true; els.bgEnabled.fire('change'); assert.equal(els.bgFields.disabled, false);
